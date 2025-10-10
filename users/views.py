@@ -4,6 +4,10 @@ from rest_framework import viewsets, permissions, status, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from .permissions import (
+    IsOwnerOrAdmin, IsAdminOrStaff, IsAdmin, IsSeller, IsBuyer, 
+    IsSellerOrAdmin, IsActiveUser, CanManageUsers, CanViewAuditLogs
+)
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.utils import timezone
@@ -12,7 +16,7 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 
-from .models import UserProfile, UserRole
+from .models import UserProfile, UserRole, UserAuditLog
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer,
@@ -23,7 +27,12 @@ from .serializers import (
     VerifyOTPSerializer,
     EmailVerificationSerializer,
     PasswordResetRequestSerializer,
-    PasswordResetConfirmSerializer
+    PasswordResetConfirmSerializer,
+    AdminUserSerializer,
+    UserAuditLogSerializer,
+    BanUserSerializer,
+    SuspendUserSerializer,
+    RoleChangeSerializer
 )
 from core.permissions import IsAdminUser, IsOwnerOrAdmin
 
@@ -226,14 +235,13 @@ class UserViewSet(viewsets.ModelViewSet):
     """ViewSet for user operations."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsActiveUser]
     
     def get_queryset(self):
-        """Return all users for staff/admin, only the current user for others."""
-        user = self.request.user
-        if user.is_admin() or user.is_staff_member():
+        """Return users based on role permissions."""
+        if self.request.user.role == User.UserRole.ADMIN:
             return User.objects.all()
-        return User.objects.filter(id=user.id)
+        return User.objects.filter(id=self.request.user.id)
     
     def get_serializer_class(self):
         """Return appropriate serializer class based on action."""
@@ -344,3 +352,194 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({"message": "Logout successful"}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminUserViewSet(viewsets.ModelViewSet):
+    """Admin viewset for comprehensive user management."""
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsAuthenticated, CanManageUsers]
+    
+    def get_queryset(self):
+        """Return all users including soft-deleted ones for admins."""
+        return User.objects.all_with_deleted()
+    
+    @action(detail=True, methods=['post'])
+    def ban(self, request, pk=None):
+        """Ban a user."""
+        user = self.get_object()
+        serializer = BanUserSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            reason = serializer.validated_data['reason']
+            until = serializer.validated_data.get('until')
+            
+            user.ban(reason=reason, until=until, banned_by=request.user)
+            UserAuditLog.log_action(
+                user=user, 
+                action='ban', 
+                performed_by=request.user,
+                details={'reason': reason, 'until': until.isoformat() if until else None},
+                request=request
+            )
+            
+            return Response({'message': f'User {user.email} has been banned.'})
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def unban(self, request, pk=None):
+        """Unban a user."""
+        user = self.get_object()
+        
+        if not user.is_banned:
+            return Response({'error': 'User is not banned.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user.unban()
+        UserAuditLog.log_action(
+            user=user, 
+            action='unban', 
+            performed_by=request.user,
+            request=request
+        )
+        
+        return Response({'message': f'User {user.email} has been unbanned.'})
+    
+    @action(detail=True, methods=['post'])
+    def suspend(self, request, pk=None):
+        """Suspend a user."""
+        user = self.get_object()
+        serializer = SuspendUserSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            reason = serializer.validated_data['reason']
+            until = serializer.validated_data.get('until')
+            
+            user.suspend(reason=reason, until=until, suspended_by=request.user)
+            UserAuditLog.log_action(
+                user=user, 
+                action='suspend', 
+                performed_by=request.user,
+                details={'reason': reason, 'until': until.isoformat() if until else None},
+                request=request
+            )
+            
+            return Response({'message': f'User {user.email} has been suspended.'})
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def unsuspend(self, request, pk=None):
+        """Unsuspend a user."""
+        user = self.get_object()
+        
+        if not user.is_suspended:
+            return Response({'error': 'User is not suspended.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user.unsuspend()
+        UserAuditLog.log_action(
+            user=user, 
+            action='unsuspend', 
+            performed_by=request.user,
+            request=request
+        )
+        
+        return Response({'message': f'User {user.email} has been unsuspended.'})
+    
+    @action(detail=True, methods=['delete'])
+    def soft_delete(self, request, pk=None):
+        """Soft delete a user."""
+        user = self.get_object()
+        
+        if user.is_deleted:
+            return Response({'error': 'User is already deleted.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user.soft_delete(deleted_by=request.user)
+        UserAuditLog.log_action(
+            user=user, 
+            action='delete', 
+            performed_by=request.user,
+            request=request
+        )
+        
+        return Response({'message': f'User {user.email} has been soft deleted.'})
+    
+    @action(detail=True, methods=['post'])
+    def restore(self, request, pk=None):
+        """Restore a soft-deleted user."""
+        user = self.get_object()
+        
+        if not user.is_deleted:
+            return Response({'error': 'User is not deleted.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user.restore()
+        UserAuditLog.log_action(
+            user=user, 
+            action='restore', 
+            performed_by=request.user,
+            request=request
+        )
+        
+        return Response({'message': f'User {user.email} has been restored.'})
+    
+    @action(detail=True, methods=['post'])
+    def change_role(self, request, pk=None):
+        """Change a user's role."""
+        user = self.get_object()
+        serializer = RoleChangeSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            old_role = user.role
+            new_role = serializer.validated_data['role']
+            
+            user.role = new_role
+            user.save(update_fields=['role'])
+            
+            UserAuditLog.log_action(
+                user=user, 
+                action='role_change', 
+                performed_by=request.user,
+                details={'old_role': old_role, 'new_role': new_role},
+                request=request
+            )
+            
+            return Response({'message': f'User {user.email} role changed from {old_role} to {new_role}.'})
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def deleted_users(self, request):
+        """Get all soft-deleted users."""
+        deleted_users = User.objects.deleted_only()
+        serializer = self.get_serializer(deleted_users, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def banned_users(self, request):
+        """Get all banned users."""
+        banned_users = User.objects.all_with_deleted().filter(is_banned=True)
+        serializer = self.get_serializer(banned_users, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def suspended_users(self, request):
+        """Get all suspended users."""
+        suspended_users = User.objects.all_with_deleted().filter(is_suspended=True)
+        serializer = self.get_serializer(suspended_users, many=True)
+        return Response(serializer.data)
+
+
+class UserAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for viewing user audit logs."""
+    queryset = UserAuditLog.objects.all()
+    serializer_class = UserAuditLogSerializer
+    permission_classes = [IsAuthenticated, CanViewAuditLogs]
+    
+    def get_queryset(self):
+        """Filter audit logs by user if specified."""
+        queryset = UserAuditLog.objects.all()
+        user_id = self.request.query_params.get('user_id')
+        
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        return queryset

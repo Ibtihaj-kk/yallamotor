@@ -21,6 +21,7 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('admin-panel/', include('admin_panel.urls')),  # Admin panel at root level
     path('api/users/', include('users.urls')),
     path('api/vehicles/', include('vehicles.urls')),
     path('api/listings/', include('listings.urls')),
@@ -28,7 +29,7 @@ urlpatterns = [
     path('api/reviews/', include('reviews.urls')),
     path('api/subscriptions/', include('subscriptions.urls')),
     path('api/notifications/', include('notifications.urls')),
-    path('api/admin-panel/', include('admin_panel.urls')),
+    path('api/admin-panel/', include('admin_panel.urls')),  # Keep API endpoints
     path('api/content/', include('content.urls')),
 ]
 

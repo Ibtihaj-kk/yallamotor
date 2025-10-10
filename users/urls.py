@@ -3,13 +3,16 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     UserViewSet, UserRegistrationView, CustomTokenObtainPairView, VerifyOTPView,
-    EmailVerificationView, PasswordResetRequestView, PasswordResetConfirmView
+    EmailVerificationView, PasswordResetRequestView, PasswordResetConfirmView,
+    AdminUserViewSet, UserAuditLogViewSet
 )
 
 app_name = 'users'
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet)
+router.register(r'admin/users', AdminUserViewSet, basename='admin-users')
+router.register(r'admin/audit-logs', UserAuditLogViewSet, basename='audit-logs')
 
 urlpatterns = [
     path('', include(router.urls)),
