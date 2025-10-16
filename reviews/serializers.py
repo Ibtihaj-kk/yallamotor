@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import VehicleReview, DealerReview, ReviewImage, ReviewVote, ReviewComment
+from .models import (
+    VehicleReview, DealerReview, SellerReview, ListingReview,
+    ReviewImage, ReviewVote, ReviewComment
+)
 from vehicles.serializers import VehicleModelListSerializer
 from users.serializers import UserSerializer
 
@@ -74,9 +77,9 @@ class VehicleReviewDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = VehicleReview
         fields = [
-            'id', 'user', 'vehicle_model', 'title', 'content', 'pros', 'cons',
-            'overall_rating', 'performance_rating', 'comfort_rating', 'interior_rating',
-            'reliability_rating', 'value_rating', 'running_cost_rating', 'created_at',
+            'id', 'user', 'vehicle_model', 'year', 'title', 'content', 'pros', 'cons',
+            'overall_rating', 'performance_rating', 'comfort_rating',
+            'reliability_rating', 'value_rating', 'fuel_economy_rating', 'created_at',
             'updated_at', 'status', 'images', 'votes', 'comments', 'helpful_count',
             'unhelpful_count', 'user_vote'
         ]
@@ -104,9 +107,9 @@ class VehicleReviewCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = VehicleReview
         fields = [
-            'vehicle_model', 'title', 'content', 'pros', 'cons',
-            'overall_rating', 'performance_rating', 'comfort_rating', 'interior_rating',
-            'reliability_rating', 'value_rating', 'running_cost_rating', 'images',
+            'id', 'vehicle_model', 'year', 'title', 'content', 'pros', 'cons',
+            'overall_rating', 'performance_rating', 'comfort_rating',
+            'reliability_rating', 'value_rating', 'fuel_economy_rating', 'images',
             'image_captions'
         ]
     
@@ -311,3 +314,237 @@ class ReviewVoteCreateSerializer(serializers.ModelSerializer):
         else:  # dealer_review
             ReviewVote.objects.filter(user=user, dealer_review=dealer_review).delete()
             return ReviewVote.objects.create(user=user, dealer_review=dealer_review, is_helpful=is_helpful)
+
+
+class SellerReviewListSerializer(serializers.ModelSerializer):
+    """Serializer for listing seller reviews."""
+    user = serializers.StringRelatedField()
+    seller = serializers.StringRelatedField()
+    helpful_votes = serializers.IntegerField(read_only=True)
+    unhelpful_votes = serializers.IntegerField(read_only=True)
+    images = ReviewImageSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = SellerReview
+        fields = [
+            'id', 'user', 'seller', 'title', 'content', 'overall_rating',
+            'communication_rating', 'reliability_rating', 'responsiveness_rating',
+            'pros', 'cons', 'status', 'is_verified_transaction',
+            'helpful_votes', 'unhelpful_votes', 'images', 'created_at', 'updated_at'
+        ]
+
+
+class SellerReviewDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for seller reviews with comments and votes."""
+    user = serializers.StringRelatedField()
+    seller = serializers.StringRelatedField()
+    helpful_votes = serializers.IntegerField(read_only=True)
+    unhelpful_votes = serializers.IntegerField(read_only=True)
+    images = ReviewImageSerializer(many=True, read_only=True)
+    comments = ReviewCommentSerializer(many=True, read_only=True)
+    votes = ReviewVoteSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = SellerReview
+        fields = [
+            'id', 'user', 'seller', 'title', 'content', 'overall_rating',
+            'communication_rating', 'reliability_rating', 'responsiveness_rating',
+            'pros', 'cons', 'status', 'is_verified_transaction',
+            'helpful_votes', 'unhelpful_votes', 'images', 'comments', 'votes',
+            'created_at', 'updated_at'
+        ]
+
+
+class SellerReviewCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating seller reviews."""
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        write_only=True,
+        required=False,
+        allow_empty=True
+    )
+    image_captions = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        write_only=True,
+        required=False,
+        allow_empty=True
+    )
+    
+    class Meta:
+        model = SellerReview
+        fields = [
+            'id', 'seller', 'title', 'content', 'overall_rating',
+            'communication_rating', 'reliability_rating', 'responsiveness_rating',
+            'pros', 'cons', 'is_verified_transaction', 'images', 'image_captions'
+        ]
+    
+    def validate_overall_rating(self, value):
+        if not (1 <= value <= 5):
+            raise serializers.ValidationError("Overall rating must be between 1 and 5.")
+        return value
+    
+    def validate(self, data):
+        # Validate that images and captions lists have the same length
+        images = data.get('images', [])
+        captions = data.get('image_captions', [])
+        
+        if len(images) != len(captions) and captions:
+            raise serializers.ValidationError(
+                "Number of images and captions must match."
+            )
+        
+        return data
+    
+    def create(self, validated_data):
+        images = validated_data.pop('images', [])
+        image_captions = validated_data.pop('image_captions', [])
+        
+        review = SellerReview.objects.create(**validated_data)
+        
+        # Create review images
+        for i, image in enumerate(images):
+            caption = image_captions[i] if i < len(image_captions) else ''
+            ReviewImage.objects.create(
+                seller_review=review,
+                image=image,
+                caption=caption
+            )
+        
+        return review
+    
+    def update(self, instance, validated_data):
+        images = validated_data.pop('images', [])
+        image_captions = validated_data.pop('image_captions', [])
+        
+        # Update review fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Handle new images (existing images are not replaced)
+        for i, image in enumerate(images):
+            caption = image_captions[i] if i < len(image_captions) else ''
+            ReviewImage.objects.create(
+                seller_review=instance,
+                image=image,
+                caption=caption
+            )
+        
+        return instance
+
+
+class ListingReviewListSerializer(serializers.ModelSerializer):
+    """Serializer for listing listing reviews."""
+    user = serializers.StringRelatedField()
+    listing = serializers.StringRelatedField()
+    helpful_votes = serializers.IntegerField(read_only=True)
+    unhelpful_votes = serializers.IntegerField(read_only=True)
+    images = ReviewImageSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = ListingReview
+        fields = [
+            'id', 'user', 'listing', 'title', 'content', 'overall_rating',
+            'vehicle_condition_rating', 'value_for_money_rating', 'listing_accuracy_rating',
+            'seller_interaction_rating', 'pros', 'cons', 'status', 'is_verified_purchase',
+            'helpful_votes', 'unhelpful_votes', 'images', 'created_at', 'updated_at'
+        ]
+
+
+class ListingReviewDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for listing reviews with comments and votes."""
+    user = serializers.StringRelatedField()
+    listing = serializers.StringRelatedField()
+    helpful_votes = serializers.IntegerField(read_only=True)
+    unhelpful_votes = serializers.IntegerField(read_only=True)
+    images = ReviewImageSerializer(many=True, read_only=True)
+    comments = ReviewCommentSerializer(many=True, read_only=True)
+    votes = ReviewVoteSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = ListingReview
+        fields = [
+            'id', 'user', 'listing', 'title', 'content', 'overall_rating',
+            'vehicle_condition_rating', 'value_for_money_rating', 'listing_accuracy_rating',
+            'seller_interaction_rating', 'pros', 'cons', 'status', 'is_verified_purchase',
+            'helpful_votes', 'unhelpful_votes', 'images', 'comments', 'votes',
+            'created_at', 'updated_at'
+        ]
+
+
+class ListingReviewCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating listing reviews."""
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        write_only=True,
+        required=False,
+        allow_empty=True
+    )
+    image_captions = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        write_only=True,
+        required=False,
+        allow_empty=True
+    )
+    
+    class Meta:
+        model = ListingReview
+        fields = [
+            'id', 'listing', 'title', 'content', 'overall_rating',
+            'vehicle_condition_rating', 'value_for_money_rating', 'listing_accuracy_rating',
+            'seller_interaction_rating', 'pros', 'cons', 'is_verified_purchase', 'images', 'image_captions'
+        ]
+    
+    def validate_overall_rating(self, value):
+        if not (1 <= value <= 5):
+            raise serializers.ValidationError("Overall rating must be between 1 and 5.")
+        return value
+    
+    def validate(self, data):
+        # Validate that images and captions lists have the same length
+        images = data.get('images', [])
+        captions = data.get('image_captions', [])
+        
+        if len(images) != len(captions) and captions:
+            raise serializers.ValidationError(
+                "Number of images and captions must match."
+            )
+        
+        return data
+    
+    def create(self, validated_data):
+        images = validated_data.pop('images', [])
+        image_captions = validated_data.pop('image_captions', [])
+        
+        review = ListingReview.objects.create(**validated_data)
+        
+        # Create review images
+        for i, image in enumerate(images):
+            caption = image_captions[i] if i < len(image_captions) else ''
+            ReviewImage.objects.create(
+                listing_review=review,
+                image=image,
+                caption=caption
+            )
+        
+        return review
+    
+    def update(self, instance, validated_data):
+        images = validated_data.pop('images', [])
+        image_captions = validated_data.pop('image_captions', [])
+        
+        # Update review fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Handle new images (existing images are not replaced)
+        for i, image in enumerate(images):
+            caption = image_captions[i] if i < len(image_captions) else ''
+            ReviewImage.objects.create(
+                listing_review=instance,
+                image=image,
+                caption=caption
+            )
+        
+        return instance

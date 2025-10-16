@@ -30,13 +30,15 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-9%@!u$4)#77lu-vf^4a)u
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver').split(',')
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'django_daisy',
     'django.contrib.admin',
+    'django.contrib.humanize',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -50,6 +52,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'drf_yasg',
     'django_filters',
+    # 'django_ratelimit',  # Temporarily disabled
+    'axes',
+    'csp',
     
     # Local apps
     'users',
@@ -65,13 +70,22 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'listings.security.SecurityHeadersMiddleware',
+    # 'django_ratelimit.middleware.RatelimitMiddleware',  # Disabled for development
+    'axes.middleware.AxesMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'users.middleware.UserRestrictionMiddleware',
+    'admin_panel.middleware.AdminSecurityMiddleware',
+    'admin_panel.middleware.AdminActivityTrackingMiddleware',
+    'admin_panel.middleware.AdminBruteForceProtectionMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'csp.middleware.CSPMiddleware',
 ]
 
 ROOT_URLCONF = 'yallamotor_project.urls'
@@ -79,7 +93,7 @@ ROOT_URLCONF = 'yallamotor_project.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -105,6 +119,13 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': os.environ.get('DB_HOST', ''),
         'PORT': os.environ.get('DB_PORT', ''),
+    }
+}
+
+# Cache Configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.dummy.DummyCache',
     }
 }
 
@@ -145,11 +166,37 @@ USE_TZ = True
 
 STATIC_URL = os.environ.get('STATIC_URL', 'static/')
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
-
+# Keep the original TEMPLATES configuration - templates are in BASE_DIR/templates
 # Media files
-MEDIA_URL = os.environ.get('MEDIA_URL', '/media/')
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# Absolute filesystem path to the media directory
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
+
+# URL that handles media served from MEDIA_ROOT
+MEDIA_URL = '/media/'
+
+# File upload settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+FILE_UPLOAD_PERMISSIONS = 0o644
+
+# Media storage backend selection
+MEDIA_STORAGE_BACKEND = os.environ.get('MEDIA_STORAGE_BACKEND', 'local')  # local, s3, cloudinary
+
+# Image processing settings
+IMAGE_QUALITY = int(os.environ.get('IMAGE_QUALITY', 85))
+IMAGE_MAX_WIDTH = int(os.environ.get('IMAGE_MAX_WIDTH', 1920))
+IMAGE_MAX_HEIGHT = int(os.environ.get('IMAGE_MAX_HEIGHT', 1080))
+THUMBNAIL_SIZE = (300, 300)
+
+# Video processing settings
+VIDEO_MAX_SIZE = 100 * 1024 * 1024  # 100MB
+VIDEO_ALLOWED_FORMATS = ['mp4', 'mov', 'avi', 'webm']
+
+# Allowed file types
+ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm']
 
 # Cloud Storage Settings
 # AWS S3 Configuration
@@ -239,6 +286,78 @@ SIMPLE_JWT = {
 # Frontend URL for email verification and password reset links
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
+# CORS Configuration
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # React development server
+    "http://127.0.0.1:3000",  # Alternative localhost
+    "http://localhost:3001",  # Alternative React port
+    "http://127.0.0.1:3001",  # Alternative localhost
+    "http://localhost:8000",  # Frontend server
+    "http://127.0.0.1:8000",  # Alternative localhost
+]
+
+# For development only - can be enabled via environment variable
+CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
+
+# CORS Headers Configuration
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+CORS_ALLOWED_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+# CORS Preflight Max Age
+CORS_PREFLIGHT_MAX_AGE = 86400  # 24 hours
+
+# API Documentation Settings (drf-yasg)
+SWAGGER_SETTINGS = {
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header'
+        }
+    },
+    'USE_SESSION_AUTH': False,
+    'JSON_EDITOR': True,
+    'SUPPORTED_SUBMIT_METHODS': [
+        'get',
+        'post',
+        'put',
+        'delete',
+        'patch'
+    ],
+    'OPERATIONS_SORTER': 'alpha',
+    'TAGS_SORTER': 'alpha',
+    'DOC_EXPANSION': 'none',
+    'DEEP_LINKING': True,
+    'SHOW_EXTENSIONS': True,
+    'SHOW_COMMON_EXTENSIONS': True,
+}
+
+REDOC_SETTINGS = {
+    'LAZY_RENDERING': False,
+    'HIDE_HOSTNAME': False,
+    'EXPAND_RESPONSES': 'all',
+    'PATH_IN_MIDDLE': True,
+}
+
 # Default from email
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@yallamotor.com')
 
@@ -250,6 +369,149 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 
+# Email notification settings
+ENABLE_INQUIRY_EMAIL_NOTIFICATIONS = os.environ.get('ENABLE_INQUIRY_EMAIL_NOTIFICATIONS', 'True') == 'True'
+
 # Security settings
 CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'False') == 'True'
 SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False') == 'True'
+
+# Rate Limiting Configuration (disabled for development)
+RATELIMIT_ENABLE = False
+RATELIMIT_USE_CACHE = 'default'
+RATELIMIT_VIEW = 'listings.security.ratelimited'
+
+# Django Axes Configuration (Brute Force Protection)
+AXES_ENABLED = True
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = 1  # 1 hour
+AXES_RESET_ON_SUCCESS = True
+AXES_ENABLE_ADMIN = True
+AXES_VERBOSE = False  # Reduced verbosity to avoid session_hash issues
+
+# Authentication backends
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# Content Security Policy (django-csp 4.0+ format)
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': {
+        'default-src': ("'self'",),
+        'script-src': ("'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"),
+        'style-src': ("'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"),
+        'font-src': ("'self'", "https://fonts.gstatic.com"),
+        'img-src': ("'self'", "data:", "https:"),
+        'connect-src': ("'self'", "http://localhost:8001", "http://127.0.0.1:8001"),
+        'frame-ancestors': ("'none'",),
+        'base-uri': ("'self'",),
+        'form-action': ("'self'",),
+    }
+}
+
+# Additional Security Headers
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+X_FRAME_OPTIONS = 'DENY'
+
+# API Security Settings
+API_RATE_LIMIT_ANONYMOUS = '100/h'
+API_RATE_LIMIT_AUTHENTICATED = '1000/h'
+API_RATE_LIMIT_ADMIN = '5000/h'
+
+# Admin Panel Security Settings
+ADMIN_SESSION_TIMEOUT = 30 * 60  # 30 minutes in seconds
+ADMIN_MAX_CONCURRENT_SESSIONS = 3
+ADMIN_REQUIRE_2FA = True
+ADMIN_IP_WHITELIST = []  # Empty list means no IP restrictions
+ADMIN_SUSPICIOUS_THRESHOLD = 5  # Failed attempts before marking as suspicious
+ADMIN_LOCKOUT_DURATION = 60 * 60  # 1 hour in seconds
+ADMIN_ACTIVITY_LOG_RETENTION_DAYS = 90
+
+# Logging Configuration for Security Events
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'security.log'),
+            'formatter': 'verbose',
+        },
+        'admin_file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'admin_audit.log'),
+            'formatter': 'verbose',
+        },
+        'email_file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'email_notifications.log'),
+            'formatter': 'verbose',
+        },
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'loggers': {
+        'security': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'admin_panel': {
+            'handlers': ['admin_file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'axes': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'inquiries.email_service': {
+            'handlers': ['email_file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'inquiries.views': {
+            'handlers': ['email_file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}
+
+# Image Optimization Settings
+IMAGE_MAX_WIDTH = 1920  # Maximum width for optimized images
+IMAGE_MAX_HEIGHT = 1080  # Maximum height for optimized images
+IMAGE_QUALITY = 85  # JPEG quality for optimized images (1-100)
+
+# Thumbnail Settings
+THUMBNAIL_SIZES = {
+    'small': (150, 150),
+    'medium': (600, 400),
+    'large': (300, 300),
+}
+
+# WebP Settings
+WEBP_QUALITY = 80  # WebP quality for better compression
+ENABLE_WEBP = True  # Enable WebP format generation

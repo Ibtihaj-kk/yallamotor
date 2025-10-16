@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import VehicleListing, ListingImage, SavedListing, ListingView
+from django.contrib import messages
+from .models import VehicleListing, ListingImage, SavedListing, ListingView, ListingStatusLog, ListingStatus
+from .status_manager import ListingStatusManager
 
 
 class ListingImageInline(admin.TabularInline):
@@ -19,28 +21,39 @@ class ListingImageInline(admin.TabularInline):
 class ListingViewInline(admin.TabularInline):
     model = ListingView
     extra = 0
-    readonly_fields = ('user', 'ip_address', 'user_agent', 'viewed_at')
-    fields = ('user', 'ip_address', 'viewed_at')
+    readonly_fields = ('user', 'ip_address', 'user_agent', 'created_at')
+    fields = ('user', 'ip_address', 'created_at')
     can_delete = False
     max_num = 10
     verbose_name_plural = 'Recent Views'
-    ordering = ('-viewed_at',)
+    ordering = ('-created_at',)
+
+
+class ListingStatusLogInline(admin.TabularInline):
+    model = ListingStatusLog
+    extra = 0
+    readonly_fields = ('old_status', 'new_status', 'changed_by', 'reason', 'timestamp')
+    fields = ('old_status', 'new_status', 'changed_by', 'reason', 'timestamp')
+    can_delete = False
+    max_num = 10
+    verbose_name_plural = 'Status History'
+    ordering = ('-timestamp',)
 
 
 @admin.register(VehicleListing)
 class VehicleListingAdmin(admin.ModelAdmin):
     list_display = ('title', 'user', 'vehicle_info', 'price_display', 'status', 'views_display', 'is_featured', 'created_at')
-    list_filter = ('status', 'condition', 'is_featured', 'is_premium', 'vehicle_specification__model__brand')
-    search_fields = ('title', 'description', 'user__email', 'vin', 'vehicle_specification__model__name', 'vehicle_specification__model__brand__name')
+    list_filter = ('status', 'condition', 'is_featured', 'is_premium', 'make', 'fuel_type', 'transmission')
+    search_fields = ('title', 'description', 'user__email', 'vin', 'make', 'model')
     readonly_fields = ('views_count', 'inquiries_count', 'created_at', 'updated_at')
-    inlines = [ListingImageInline, ListingViewInline]
+    inlines = [ListingImageInline, ListingViewInline, ListingStatusLogInline]
     prepopulated_fields = {'slug': ('title',)}
     list_per_page = 25
     date_hierarchy = 'created_at'
-    actions = ['mark_as_featured', 'mark_as_premium', 'mark_as_active', 'mark_as_sold']
+    actions = ['publish_listings', 'suspend_listings', 'mark_as_sold', 'reject_listings']
     
     def vehicle_info(self, obj):
-        return f"{obj.vehicle_specification.model.brand.name} {obj.vehicle_specification.model.name} {obj.vehicle_specification.year}"
+        return f"{obj.make} {obj.model} {obj.year}"
     vehicle_info.short_description = 'Vehicle'
     
     def price_display(self, obj):
@@ -65,16 +78,95 @@ class VehicleListingAdmin(admin.ModelAdmin):
         queryset.update(status='active')
     mark_as_active.short_description = "Mark selected listings as active"
     
+    def publish_listings(self, request, queryset):
+        """Publish selected listings"""
+        success_count = 0
+        error_count = 0
+        
+        for listing in queryset:
+            try:
+                listing.publish(user=request.user)
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+                messages.error(request, f"Failed to publish '{listing.title}': {str(e)}")
+        
+        if success_count:
+            messages.success(request, f'{success_count} listing(s) were successfully published.')
+        if error_count:
+            messages.warning(request, f'{error_count} listing(s) could not be published.')
+    
+    publish_listings.short_description = "Publish selected listings"
+
+    def suspend_listings(self, request, queryset):
+        """Suspend selected listings"""
+        success_count = 0
+        error_count = 0
+        
+        for listing in queryset:
+            try:
+                listing.suspend(user=request.user, reason="Suspended by admin")
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+                messages.error(request, f"Failed to suspend '{listing.title}': {str(e)}")
+        
+        if success_count:
+            messages.success(request, f'{success_count} listing(s) were successfully suspended.')
+        if error_count:
+            messages.warning(request, f'{error_count} listing(s) could not be suspended.')
+    
+    suspend_listings.short_description = "Suspend selected listings"
+
     def mark_as_sold(self, request, queryset):
-        queryset.update(status='sold')
+        """Mark selected listings as sold"""
+        success_count = 0
+        error_count = 0
+        
+        for listing in queryset:
+            try:
+                listing.mark_as_sold(user=request.user)
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+                messages.error(request, f"Failed to mark '{listing.title}' as sold: {str(e)}")
+        
+        if success_count:
+            messages.success(request, f'{success_count} listing(s) were successfully marked as sold.')
+        if error_count:
+            messages.warning(request, f'{error_count} listing(s) could not be marked as sold.')
+    
     mark_as_sold.short_description = "Mark selected listings as sold"
+
+    def reject_listings(self, request, queryset):
+        """Reject selected listings"""
+        success_count = 0
+        error_count = 0
+        
+        for listing in queryset:
+            try:
+                listing.reject(user=request.user, reason="Rejected by admin")
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+                messages.error(request, f"Failed to reject '{listing.title}': {str(e)}")
+        
+        if success_count:
+            messages.success(request, f'{success_count} listing(s) were successfully rejected.')
+        if error_count:
+            messages.warning(request, f'{error_count} listing(s) could not be rejected.')
+    
+    reject_listings.short_description = "Reject selected listings"
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('title', 'slug', 'user', 'vehicle_specification', 'condition', 'status')
+            'fields': ('title', 'slug', 'user', 'condition', 'status')
         }),
-        ('Pricing and Details', {
-            'fields': ('price', 'price_type', 'mileage', 'color_exterior', 'color_interior', 'vin')
+        ('Vehicle Details', {
+            'fields': ('year', 'make', 'model', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seats', 'color', 'vin')
+        }),
+        ('Pricing and Mileage', {
+            'fields': ('price', 'kilometers')
         }),
         ('Location', {
             'fields': ('location_city', 'location_state', 'location_country')
@@ -98,7 +190,7 @@ class VehicleListingAdmin(admin.ModelAdmin):
 @admin.register(ListingImage)
 class ListingImageAdmin(admin.ModelAdmin):
     list_display = ('listing', 'image_preview', 'is_primary', 'order', 'created_at')
-    list_filter = ('is_primary', 'listing__vehicle_specification__model__brand')
+    list_filter = ('is_primary', 'listing__make')
     search_fields = ('listing__title', 'caption')
     readonly_fields = ('image_preview', 'thumbnail_preview')
     
@@ -124,8 +216,29 @@ class SavedListingAdmin(admin.ModelAdmin):
 
 @admin.register(ListingView)
 class ListingViewAdmin(admin.ModelAdmin):
-    list_display = ('listing', 'user', 'ip_address', 'viewed_at')
-    list_filter = ('viewed_at', 'listing__vehicle_specification__model__brand')
+    list_display = ('listing', 'user', 'ip_address', 'created_at')
+    list_filter = ('created_at', 'listing__make')
     search_fields = ('listing__title', 'user__email', 'ip_address')
-    readonly_fields = ('listing', 'user', 'ip_address', 'user_agent', 'viewed_at')
-    date_hierarchy = 'viewed_at'
+    readonly_fields = ('listing', 'user', 'ip_address', 'user_agent', 'created_at')
+    date_hierarchy = 'created_at'
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ListingStatusLog)
+class ListingStatusLogAdmin(admin.ModelAdmin):
+    list_display = ('listing', 'old_status', 'new_status', 'changed_by', 'timestamp')
+    list_filter = ('old_status', 'new_status', 'timestamp', 'listing__make')
+    search_fields = ('listing__title', 'changed_by__username', 'reason')
+    readonly_fields = ('listing', 'old_status', 'new_status', 'changed_by', 'reason', 'timestamp')
+    date_hierarchy = 'timestamp'
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        return False

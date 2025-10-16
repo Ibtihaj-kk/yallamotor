@@ -1,8 +1,11 @@
+"""
+Comprehensive serializers for vehicle listings API.
+"""
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import VehicleListing, ListingImage, SavedListing, ListingView
-from vehicles.serializers import VehicleSpecificationDetailSerializer
+from .models import VehicleListing, ListingImage, ListingVideo, SavedListing, ListingView, ListingStatusLog
 from users.serializers import UserSerializer
+from vehicles.serializers import VehicleCategorySerializer
 
 User = get_user_model()
 
@@ -12,176 +15,311 @@ class ListingImageSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ListingImage
-        fields = ['id', 'image', 'thumbnail', 'is_primary', 'caption', 'order', 'created_at']
+        fields = ['id', 'image', 'caption', 'is_primary', 'order', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class ListingVideoSerializer(serializers.ModelSerializer):
+    """Serializer for listing videos."""
+    
+    class Meta:
+        model = ListingVideo
+        fields = ['id', 'video', 'thumbnail', 'title', 'description', 'duration', 'order', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class ListingStatusLogSerializer(serializers.ModelSerializer):
+    """Serializer for listing status logs."""
+    changed_by = UserSerializer(read_only=True)
+    
+    class Meta:
+        model = ListingStatusLog
+        fields = ['id', 'old_status', 'new_status', 'changed_by', 'reason', 'timestamp']
+        read_only_fields = ['id', 'timestamp']
 
 
 class VehicleListingListSerializer(serializers.ModelSerializer):
-    """Serializer for listing vehicle listings."""
+    """Lightweight serializer for listing lists and search results."""
     user = UserSerializer(read_only=True)
+    body_type = VehicleCategorySerializer(read_only=True)
     primary_image = serializers.SerializerMethodField()
-    year = serializers.SerializerMethodField()
-    location = serializers.SerializerMethodField()
+    location_display = serializers.SerializerMethodField()
     
     class Meta:
         model = VehicleListing
         fields = [
-            'id', 'title', 'slug', 'user', 'condition', 'year', 'mileage',
-            'price', 'price_type', 'location', 'status', 'created_at',
-            'primary_image'
+            'id', 'title', 'slug', 'price', 'year', 'make', 'model',
+            'kilometers', 'fuel_type', 'transmission', 'color',
+            'condition', 'status', 'is_featured', 'is_premium',
+            'body_type', 'location_display', 'primary_image', 'user', 'created_at',
+            'views_count', 'inquiries_count'
         ]
-    
-    def get_year(self, obj):
-        return obj.vehicle_specification.year if obj.vehicle_specification else None
-    
-    def get_location(self, obj):
-        return f"{obj.location_city}, {obj.location_country}"
+        read_only_fields = ['id', 'slug', 'views_count', 'inquiries_count', 'created_at']
     
     def get_primary_image(self, obj):
+        """Get the primary image URL."""
         primary_image = obj.images.filter(is_primary=True).first()
-        if not primary_image:
-            primary_image = obj.images.first()
-        
-        if primary_image:
-            return ListingImageSerializer(primary_image).data
+        if primary_image and primary_image.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(primary_image.image.url)
+            return primary_image.image.url
         return None
+    
+    def get_location_display(self, obj):
+        """Get formatted location display."""
+        parts = []
+        if obj.location_city:
+            parts.append(obj.location_city)
+        if obj.location_state:
+            parts.append(obj.location_state)
+        if obj.location_country:
+            parts.append(obj.location_country)
+        return ', '.join(parts) if parts else None
 
 
 class VehicleListingDetailSerializer(serializers.ModelSerializer):
-    """Detailed serializer for vehicle listings."""
+    """Comprehensive serializer for detailed listing views."""
     user = UserSerializer(read_only=True)
-    vehicle_specification = VehicleSpecificationDetailSerializer(read_only=True)
-    images = ListingImageSerializer(source='images', many=True, read_only=True)
-    saved_count = serializers.SerializerMethodField()
-    view_count = serializers.SerializerMethodField()
+    body_type = VehicleCategorySerializer(read_only=True)
+    images = ListingImageSerializer(many=True, read_only=True)
+    videos = ListingVideoSerializer(many=True, read_only=True)
+    status_logs = ListingStatusLogSerializer(many=True, read_only=True)
     is_saved = serializers.SerializerMethodField()
-    year = serializers.SerializerMethodField()
-    location = serializers.SerializerMethodField()
-    exterior_color = serializers.CharField(source='color_exterior', read_only=True)
-    interior_color = serializers.CharField(source='color_interior', read_only=True)
+    allowed_transitions = serializers.SerializerMethodField()
     
     class Meta:
         model = VehicleListing
         fields = [
-            'id', 'title', 'slug', 'user', 'vehicle_specification', 'condition',
-            'year', 'mileage', 'price', 'price_type', 'location', 'description',
-            'exterior_color', 'interior_color', 'vin', 'status', 'created_at',
-            'updated_at', 'images', 'saved_count', 'view_count', 'is_saved'
+            'id', 'title', 'slug', 'description', 'price', 'year', 'make', 'model',
+            'kilometers', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seats',
+            'color', 'color_interior', 'condition', 'vin', 'status',
+            'is_featured', 'is_premium', 'body_type', 'published_at', 'expires_at',
+            'location_city', 'location_state', 'location_country',
+            'warranty_information', 'additional_features', 'seller_notes',
+            'user', 'images', 'videos', 'status_logs', 'is_saved',
+            'allowed_transitions', 'views_count', 'inquiries_count',
+            'created_at', 'updated_at', 'meta_title', 'meta_description', 'meta_keywords'
+        ]
+        read_only_fields = [
+            'id', 'slug', 'views_count', 'inquiries_count', 'created_at', 
+            'updated_at', 'published_at', 'status_logs', 'allowed_transitions'
         ]
     
-    def get_year(self, obj):
-        return obj.vehicle_specification.year if obj.vehicle_specification else None
-    
-    def get_location(self, obj):
-        return f"{obj.location_city}, {obj.location_country}"
-    
-    def get_saved_count(self, obj):
-        return obj.saved_by.count()
-    
-    def get_view_count(self, obj):
-        return obj.listing_views.count()
-    
     def get_is_saved(self, obj):
+        """Check if listing is saved by current user."""
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            return SavedListing.objects.filter(user=request.user, listing=obj).exists()
+            return SavedListing.objects.filter(
+                user=request.user, 
+                listing=obj
+            ).exists()
         return False
+    
+    def get_allowed_transitions(self, obj):
+        """Get allowed status transitions for current user."""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            # Only show transitions to listing owner or staff
+            if request.user == obj.user or request.user.is_staff:
+                return obj.get_allowed_transitions()
+        return []
 
 
 class VehicleListingCreateUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for creating and updating vehicle listings."""
-    images = serializers.ListField(child=serializers.ImageField(), required=False, write_only=True)
-    primary_image_index = serializers.IntegerField(required=False, write_only=True)
-    location_city = serializers.CharField()
-    location_country = serializers.CharField()
-    exterior_color = serializers.CharField(source='color_exterior', required=False)
-    interior_color = serializers.CharField(source='color_interior', required=False)
+    """Serializer for creating and updating listings."""
+    images = ListingImageSerializer(many=True, read_only=True)
+    uploaded_images = serializers.ListField(
+        child=serializers.ImageField(),
+        write_only=True,
+        required=False,
+        help_text="List of images to upload"
+    )
+    videos = ListingVideoSerializer(many=True, read_only=True)
+    uploaded_videos = serializers.ListField(
+        child=serializers.FileField(),
+        write_only=True,
+        required=False,
+        help_text="List of videos to upload"
+    )
     
     class Meta:
         model = VehicleListing
         fields = [
-            'title', 'vehicle_specification', 'condition', 'mileage',
-            'price', 'price_type', 'location_city', 'location_country', 'description', 
-            'exterior_color', 'interior_color', 'vin', 'status', 'images', 'primary_image_index'
+            'title', 'description', 'price', 'year', 'make', 'model',
+            'kilometers', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seats',
+            'color', 'color_interior', 'condition', 'vin', 'body_type',
+            'location_city', 'location_state', 'location_country',
+            'warranty_information', 'additional_features', 'seller_notes',
+            'expires_at', 'images', 'videos', 'uploaded_images', 'uploaded_videos',
+            'meta_title', 'meta_description', 'meta_keywords'
         ]
+        extra_kwargs = {
+            'title': {'required': True},
+            'description': {'required': True},
+            'price': {'required': True, 'min_value': 0},
+            'year': {'required': True},
+            'make': {'required': True},
+            'model': {'required': True},
+        }
+    
+    def validate_price(self, value):
+        """Validate price is positive."""
+        if value <= 0:
+            raise serializers.ValidationError("Price must be greater than 0")
+        return value
+    
+    def validate_year(self, value):
+        """Validate year is reasonable."""
+        from datetime import datetime
+        current_year = datetime.now().year
+        if value < 1900 or value > current_year + 1:
+            raise serializers.ValidationError(
+                f"Year must be between 1900 and {current_year + 1}"
+            )
+        return value
+    
+    def validate_kilometers(self, value):
+        """Validate kilometers is not negative."""
+        if value < 0:
+            raise serializers.ValidationError("Kilometers cannot be negative")
+        return value
     
     def create(self, validated_data):
-        images_data = validated_data.pop('images', [])
-        primary_image_index = validated_data.pop('primary_image_index', 0)
+        """Create listing with images and videos."""
+        uploaded_images = validated_data.pop('uploaded_images', [])
+        uploaded_videos = validated_data.pop('uploaded_videos', [])
         
-        # Set the user from the request
-        validated_data['user'] = self.context['request'].user
+        # Set user from request
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
         
-        # Create the listing
-        listing = VehicleListing.objects.create(**validated_data)
+        listing = super().create(validated_data)
         
         # Create images
-        self._process_images(listing, images_data, primary_image_index)
+        for i, image in enumerate(uploaded_images):
+            ListingImage.objects.create(
+                listing=listing,
+                image=image,
+                is_primary=(i == 0),  # First image is primary
+                order=i
+            )
+        
+        # Create videos
+        for i, video in enumerate(uploaded_videos):
+            ListingVideo.objects.create(
+                listing=listing,
+                video=video,
+                order=i
+            )
         
         return listing
     
     def update(self, instance, validated_data):
-        images_data = validated_data.pop('images', None)
-        primary_image_index = validated_data.pop('primary_image_index', None)
+        """Update listing with new images and videos."""
+        uploaded_images = validated_data.pop('uploaded_images', [])
+        uploaded_videos = validated_data.pop('uploaded_videos', [])
         
-        # Update listing fields
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
+        listing = super().update(instance, validated_data)
         
-        # Update images if provided
-        if images_data is not None:
-            # Clear existing images
-            instance.listingimage_set.all().delete()
-            # Create new images
-            self._process_images(instance, images_data, primary_image_index)
-        
-        return instance
-    
-    def _process_images(self, listing, images_data, primary_image_index):
-        for i, image_data in enumerate(images_data):
+        # Add new images (don't replace existing ones)
+        existing_images_count = listing.images.count()
+        for i, image in enumerate(uploaded_images):
             ListingImage.objects.create(
                 listing=listing,
-                image=image_data,
-                is_primary=(i == primary_image_index),
-                order=i
+                image=image,
+                is_primary=(existing_images_count == 0 and i == 0),
+                order=existing_images_count + i
             )
+        
+        # Add new videos (don't replace existing ones)
+        existing_videos_count = listing.videos.count()
+        for i, video in enumerate(uploaded_videos):
+            ListingVideo.objects.create(
+                listing=listing,
+                video=video,
+                order=existing_videos_count + i
+            )
+        
+        return listing
 
 
 class SavedListingSerializer(serializers.ModelSerializer):
-    """Serializer for saved listings."""
-    listing = VehicleListingListSerializer(read_only=True)
+    """Serializer for saved listings with comprehensive vehicle details."""
+    listing = VehicleListingDetailSerializer(read_only=True)
+    listing_id = serializers.IntegerField(write_only=True, source='listing')
     
     class Meta:
         model = SavedListing
-        fields = ['id', 'user', 'listing', 'created_at']
-        read_only_fields = ['user']
+        fields = ['id', 'listing', 'listing_id', 'created_at']
+        read_only_fields = ['id', 'created_at']
     
-    def create(self, validated_data):
-        validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
+    def validate_listing_id(self, value):
+        """Validate that the listing exists and is published."""
+        try:
+            listing = VehicleListing.objects.get(id=value)
+            if listing.status != 'published':
+                raise serializers.ValidationError("Cannot save unpublished listings.")
+            return listing
+        except VehicleListing.DoesNotExist:
+            raise serializers.ValidationError("Listing does not exist.")
+    
+    def validate(self, attrs):
+        """Validate that user hasn't already saved this listing."""
+        user = self.context['request'].user
+        listing = attrs.get('listing')
+        
+        if SavedListing.objects.filter(user=user, listing=listing).exists():
+            raise serializers.ValidationError("You have already saved this listing.")
+        
+        return attrs
 
 
 class ListingViewSerializer(serializers.ModelSerializer):
-    """Serializer for listing views."""
+    """Serializer for listing views/analytics."""
+    user = UserSerializer(read_only=True)
+    listing = VehicleListingListSerializer(read_only=True)
     
     class Meta:
         model = ListingView
-        fields = ['id', 'user', 'listing', 'ip_address', 'created_at']
-        read_only_fields = ['user', 'ip_address']
+        fields = ['id', 'listing', 'user', 'ip_address', 'user_agent', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class VehicleListingStatusSerializer(serializers.Serializer):
+    """Serializer for status change operations."""
+    status = serializers.ChoiceField(choices=VehicleListing._meta.get_field('status').choices)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
     
-    def create(self, validated_data):
-        request = self.context.get('request')
+    def validate(self, data):
+        """Validate status transition."""
+        listing = self.context.get('listing')
+        new_status = data['status']
         
-        # Set user if authenticated
-        if request and request.user.is_authenticated:
-            validated_data['user'] = request.user
+        if listing and not listing.can_transition_to(new_status):
+            allowed = listing.get_allowed_transitions()
+            raise serializers.ValidationError({
+                'status': f"Cannot transition to {new_status}. Allowed: {allowed}"
+            })
         
-        # Set IP address
-        if request:
-            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-            if x_forwarded_for:
-                validated_data['ip_address'] = x_forwarded_for.split(',')[0]
-            else:
-                validated_data['ip_address'] = request.META.get('REMOTE_ADDR')
+        # Validate reason for rejection
+        if new_status == 'rejected' and not data.get('reason'):
+            raise serializers.ValidationError({
+                'reason': 'Reason is required when rejecting a listing'
+            })
         
-        return super().create(validated_data)
+        return data
+
+
+class VehicleListingStatsSerializer(serializers.Serializer):
+    """Serializer for listing statistics."""
+    total_listings = serializers.IntegerField()
+    published_listings = serializers.IntegerField()
+    draft_listings = serializers.IntegerField()
+    sold_listings = serializers.IntegerField()
+    total_views = serializers.IntegerField()
+    total_inquiries = serializers.IntegerField()
+    avg_price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    popular_makes = serializers.ListField(child=serializers.DictField())
+    recent_activity = serializers.ListField(child=serializers.DictField())

@@ -3,7 +3,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from .models import UserProfile, UserRole
+from .models import UserProfile, UserRole, UserAuditLog
 
 User = get_user_model()
 
@@ -230,6 +230,68 @@ class PasswordChangeSerializer(serializers.Serializer):
         return value
 
 
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    """Enhanced serializer for user profile updates with email validation."""
+    profile = UserProfileSerializer(required=False)
+    email = serializers.EmailField(required=False)
+    
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'email', 'phone_number', 'profile']
+    
+    def validate_email(self, value):
+        """Validate that email is unique (excluding current user)."""
+        user = self.instance
+        if User.objects.filter(email=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+    
+    def validate_phone_number(self, value):
+        """Validate phone number format."""
+        if value and len(value) < 10:
+            raise serializers.ValidationError("Phone number must be at least 10 digits.")
+        return value
+    
+    def update(self, instance, validated_data):
+        profile_data = validated_data.pop('profile', None)
+        
+        # Track if email is being changed for audit logging
+        email_changed = False
+        old_email = instance.email
+        
+        # Update user fields
+        for attr, value in validated_data.items():
+            if attr == 'email' and value != old_email:
+                email_changed = True
+                # If email is changed, mark as unverified
+                instance.is_verified = False
+                instance.generate_email_verification_token()
+            setattr(instance, attr, value)
+        
+        instance.save()
+        
+        # Update or create profile
+        if profile_data:
+            profile, created = UserProfile.objects.get_or_create(user=instance)
+            for attr, value in profile_data.items():
+                setattr(profile, attr, value)
+            profile.save()
+        
+        # Log the profile update
+        UserAuditLog.log_action(
+            user=instance,
+            action='update',
+            details={
+                'fields_updated': list(validated_data.keys()),
+                'email_changed': email_changed,
+                'profile_updated': profile_data is not None
+            },
+            request=self.context.get('request')
+        )
+        
+        return instance
+
+
 class UserUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating user data."""
     profile = UserProfileSerializer(required=False)
@@ -265,3 +327,51 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             profile.save()
         
         return instance
+
+
+class UserAuditLogSerializer(serializers.ModelSerializer):
+    """Serializer for user audit logs."""
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    performed_by_email = serializers.CharField(source='performed_by.email', read_only=True)
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
+    
+    class Meta:
+        model = UserAuditLog
+        fields = ['id', 'user', 'user_email', 'action', 'action_display', 'performed_by', 
+                 'performed_by_email', 'timestamp', 'details', 'ip_address']
+        read_only_fields = ['id', 'timestamp']
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """Serializer for admin user management."""
+    profile = UserProfileSerializer(read_only=True)
+    full_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'first_name', 'last_name', 'full_name', 'phone_number', 
+                 'profile_picture', 'role', 'is_verified', 'is_2fa_enabled', 'date_joined',
+                 'is_active', 'is_deleted', 'deleted_at', 'deleted_by', 'is_banned', 
+                 'is_suspended', 'ban_reason', 'suspend_reason', 'ban_until', 'suspend_until',
+                 'banned_by', 'suspended_by', 'profile']
+        read_only_fields = ['id', 'date_joined', 'deleted_at', 'deleted_by', 'banned_by', 'suspended_by']
+    
+    def get_full_name(self, obj):
+        return obj.get_full_name()
+
+
+class BanUserSerializer(serializers.Serializer):
+    """Serializer for banning users."""
+    reason = serializers.CharField(required=True, max_length=500)
+    until = serializers.DateTimeField(required=False, allow_null=True)
+
+
+class SuspendUserSerializer(serializers.Serializer):
+    """Serializer for suspending users."""
+    reason = serializers.CharField(required=True, max_length=500)
+    until = serializers.DateTimeField(required=False, allow_null=True)
+
+
+class RoleChangeSerializer(serializers.Serializer):
+    """Serializer for changing user roles."""
+    role = serializers.ChoiceField(choices=UserRole.choices, required=True)

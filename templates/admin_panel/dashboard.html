@@ -1,0 +1,288 @@
+{% extends 'admin_panel/base.html' %}
+
+{% block title %}Dashboard - YallaMotor Admin{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stats-card primary">
+            <div class="d-flex align-items-center">
+                <div class="icon">
+                    <i class="fas fa-list"></i>
+                </div>
+                <div class="ms-3">
+                    <h3 class="mb-0">{{ total_listings }}</h3>
+                    <p class="text-muted mb-0">Total Listings</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stats-card success">
+            <div class="d-flex align-items-center">
+                <div class="icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="ms-3">
+                    <h3 class="mb-0">{{ published_listings }}</h3>
+                    <p class="text-muted mb-0">Published</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stats-card warning">
+            <div class="d-flex align-items-center">
+                <div class="icon">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="ms-3">
+                    <h3 class="mb-0">{{ pending_listings }}</h3>
+                    <p class="text-muted mb-0">Pending</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stats-card danger">
+            <div class="d-flex align-items-center">
+                <div class="icon">
+                    <i class="fas fa-star"></i>
+                </div>
+                <div class="ms-3">
+                    <h3 class="mb-0">{{ featured_listings }}</h3>
+                    <p class="text-muted mb-0">Featured</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row mb-4">
+    <!-- Monthly Trend Chart -->
+    <div class="col-lg-8 mb-3">
+        <div class="chart-container">
+            <h5 class="mb-3">Listings Trend (Last 6 Months)</h5>
+            <canvas id="monthlyTrendChart" height="100"></canvas>
+        </div>
+    </div>
+    
+    <!-- Status Distribution Chart -->
+    <div class="col-lg-4 mb-3">
+        <div class="chart-container">
+            <h5 class="mb-3">Status Distribution</h5>
+            <canvas id="statusChart" height="200"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Data Tables Row -->
+<div class="row">
+    <!-- Recent Listings -->
+    <div class="col-lg-6 mb-3">
+        <div class="table-container">
+            <h5 class="table-header">Recent Listings</h5>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Title</th>
+                            <th>User</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for listing in recent_listings %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'admin_panel:listing_detail' listing.id %}" 
+                                   class="text-decoration-none">
+                                    {{ listing.title|truncatechars:30 }}
+                                </a>
+                            </td>
+                            <td>{{ listing.user.email|truncatechars:20 }}</td>
+                            <td>
+                                <span class="status-badge status-{{ listing.status }}">
+                                    {{ listing.get_status_display }}
+                                </span>
+                            </td>
+                            <td>{{ listing.created_at|date:"M d, Y" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">No recent listings</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-3 text-center">
+                <a href="{% url 'admin_panel:listings_management' %}" class="btn btn-primary btn-sm">
+                    View All Listings
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Popular Makes -->
+    <div class="col-lg-6 mb-3">
+        <div class="table-container">
+            <h5 class="table-header">Popular Makes</h5>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Make</th>
+                            <th>Count</th>
+                            <th>Percentage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for make in popular_makes %}
+                        <tr>
+                            <td>{{ make.make__name }}</td>
+                            <td>{{ make.count }}</td>
+                            <td>
+                                {% widthratio make.count published_listings 100 %}%
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="3" class="text-center text-muted">No data available</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row">
+    <div class="col-12">
+        <div class="table-container">
+            <h5 class="table-header">Recent Activity</h5>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>User</th>
+                            <th>Action</th>
+                            <th>Description</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for activity in recent_activities %}
+                        <tr>
+                            <td>{{ activity.user.email }}</td>
+                            <td>
+                                <span class="badge bg-secondary">
+                                    {{ activity.get_action_type_display }}
+                                </span>
+                            </td>
+                            <td>{{ activity.description|truncatechars:50 }}</td>
+                            <td>{{ activity.action_time|timesince }} ago</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">No recent activity</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-3 text-center">
+                <a href="{% url 'admin_panel:activity_logs' %}" class="btn btn-primary btn-sm">
+                    View All Activity
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Monthly Trend Chart
+    const monthlyCtx = document.getElementById('monthlyTrendChart').getContext('2d');
+    const monthlyData = {{ monthly_data|safe }};
+    
+    new Chart(monthlyCtx, {
+        type: 'line',
+        data: {
+            labels: monthlyData.map(item => item.month),
+            datasets: [{
+                label: 'Listings Created',
+                data: monthlyData.map(item => item.count),
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+    
+    // Status Distribution Chart
+    const statusCtx = document.getElementById('statusChart').getContext('2d');
+    const statusData = {{ status_distribution|safe }};
+    
+    const statusColors = {
+        'published': '#27ae60',
+        'pending': '#f39c12',
+        'draft': '#e74c3c',
+        'rejected': '#95a5a6'
+    };
+    
+    new Chart(statusCtx, {
+        type: 'doughnut',
+        data: {
+            labels: statusData.map(item => item.status.charAt(0).toUpperCase() + item.status.slice(1)),
+            datasets: [{
+                data: statusData.map(item => item.count),
+                backgroundColor: statusData.map(item => statusColors[item.status] || '#95a5a6'),
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+    
+    // Auto-refresh every 5 minutes
+    setTimeout(() => location.reload(), 300000);
+</script>
+{% endblock %}

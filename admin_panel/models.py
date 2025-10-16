@@ -18,7 +18,7 @@ class ActivityLogType(models.TextChoices):
 
 class ActivityLog(models.Model):
     """Model for tracking admin user activities."""
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='activity_logs')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='activity_logs', null=True, blank=True)
     action_type = models.CharField(max_length=20, choices=ActivityLogType.choices)
     action_time = models.DateTimeField(auto_now_add=True)
     ip_address = models.GenericIPAddressField(blank=True, null=True)

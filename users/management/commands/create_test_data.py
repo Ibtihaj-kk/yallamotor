@@ -11,7 +11,7 @@ from vehicles.models import (
     VehicleCategory, VehicleSpecification
 )
 from listings.models import (
-    VehicleListing, ListingStatus, ConditionType, PriceType
+    VehicleListing, ListingStatus
 )
 
 
@@ -268,19 +268,23 @@ class Command(BaseCommand):
             listing_data = {
                 'title': f"{spec.model.brand.name} {spec.model.name} {spec.year}",
                 'user': seller,
-                'vehicle_specification': spec,
-                'condition': random.choice([ConditionType.NEW, ConditionType.USED]),
-                'mileage': int(mileage),
+                'description': f"Excellent condition {spec.model.brand.name} {spec.model.name} {spec.year}. Well maintained vehicle.",
                 'price': Decimal(str(int(price))),
-                'price_type': random.choice([PriceType.FIXED, PriceType.NEGOTIABLE]),
+                'year': spec.year,
+                'make': spec.model.brand.name,
+                'model': spec.model.name,
+                'kilometers': int(mileage),
+                'fuel_type': 'gasoline',
+                'transmission': 'automatic',
+                'color': random.choice(colors),
+                'condition': random.choice(['new', 'used']),
+                'engine_size': Decimal('2.0'),
+                'doors': 4,
+                'seats': 5,
                 'location_city': random.choice(cities),
                 'location_country': 'UAE',
-                'description': f"Excellent condition {spec.model.brand.name} {spec.model.name} {spec.year}. Well maintained vehicle.",
-                'color_exterior': random.choice(colors),
-                'color_interior': random.choice(['Black', 'Beige', 'Gray']),
-                'status': ListingStatus.ACTIVE,
+                'status': ListingStatus.PUBLISHED,
                 'is_featured': random.choice([True, False]),
-                'views_count': random.randint(10, 100)
             }
             
             listing, created = VehicleListing.objects.get_or_create(

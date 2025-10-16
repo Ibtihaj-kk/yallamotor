@@ -1,7 +1,6 @@
 from django_filters import rest_framework as filters
 from django.db import models
-from .models import VehicleListing
-from vehicles.models import Brand, VehicleModel, VehicleCategory, FuelType, TransmissionType
+from .models import VehicleListing, ListingStatus, ConditionType
 
 
 class VehicleListingFilter(filters.FilterSet):
@@ -10,28 +9,47 @@ class VehicleListingFilter(filters.FilterSet):
     min_price = filters.NumberFilter(field_name='price', lookup_expr='gte')
     max_price = filters.NumberFilter(field_name='price', lookup_expr='lte')
     
-    # Mileage range filters
-    min_mileage = filters.NumberFilter(field_name='mileage', lookup_expr='gte')
-    max_mileage = filters.NumberFilter(field_name='mileage', lookup_expr='lte')
+    # Kilometers range filters
+    min_kilometers = filters.NumberFilter(field_name='kilometers', lookup_expr='gte')
+    max_kilometers = filters.NumberFilter(field_name='kilometers', lookup_expr='lte')
     
     # Year range filters
-    min_year = filters.NumberFilter(field_name='vehicle_specification__year', lookup_expr='gte')
-    max_year = filters.NumberFilter(field_name='vehicle_specification__year', lookup_expr='lte')
+    min_year = filters.NumberFilter(field_name='year', lookup_expr='gte')
+    max_year = filters.NumberFilter(field_name='year', lookup_expr='lte')
     
-    # Vehicle specification filters
-    brand = filters.ModelChoiceFilter(queryset=Brand.objects.all(), field_name='vehicle_specification__model__brand')
-    model = filters.ModelChoiceFilter(queryset=VehicleModel.objects.all(), field_name='vehicle_specification__model')
-    category = filters.ModelChoiceFilter(queryset=VehicleCategory.objects.all(), field_name='vehicle_specification__category')
-    fuel_type = filters.ModelChoiceFilter(queryset=FuelType.objects.all(), field_name='vehicle_specification__fuel_type')
-    transmission = filters.ModelChoiceFilter(queryset=TransmissionType.objects.all(), field_name='vehicle_specification__transmission')
+    # Vehicle filters
+    make = filters.CharFilter(field_name='make', lookup_expr='icontains')
+    model = filters.CharFilter(field_name='model', lookup_expr='icontains')
+    fuel_type = filters.ChoiceFilter(choices=[
+        ('gasoline', 'Gasoline'),
+        ('diesel', 'Diesel'),
+        ('electric', 'Electric'),
+        ('hybrid', 'Hybrid'),
+        ('plug_in_hybrid', 'Plug-in Hybrid'),
+        ('lpg', 'LPG'),
+        ('cng', 'CNG'),
+    ])
+    transmission = filters.ChoiceFilter(choices=[
+        ('manual', 'Manual'),
+        ('automatic', 'Automatic'),
+        ('cvt', 'CVT'),
+        ('semi_automatic', 'Semi-Automatic'),
+    ])
+    
+    # Engine size range filters
+    min_engine_size = filters.NumberFilter(field_name='engine_size', lookup_expr='gte')
+    max_engine_size = filters.NumberFilter(field_name='engine_size', lookup_expr='lte')
+    
+    # Doors and seats filters
+    doors = filters.NumberFilter(field_name='doors')
+    seats = filters.NumberFilter(field_name='seats')
     
     # Location filters
     city = filters.CharFilter(field_name='location_city', lookup_expr='icontains')
     country = filters.CharFilter(field_name='location_country', lookup_expr='icontains')
     
-    # Color filters
-    exterior_color = filters.CharFilter(field_name='color_exterior', lookup_expr='icontains')
-    interior_color = filters.CharFilter(field_name='color_interior', lookup_expr='icontains')
+    # Color filter
+    color = filters.CharFilter(field_name='color', lookup_expr='icontains')
     
     # Listing status filters
     is_featured = filters.BooleanFilter(field_name='is_featured')
@@ -45,18 +63,17 @@ class VehicleListingFilter(filters.FilterSet):
         return queryset.filter(
             models.Q(title__icontains=value) |
             models.Q(description__icontains=value) |
-            models.Q(vehicle_specification__model__name__icontains=value) |
-            models.Q(vehicle_specification__model__brand__name__icontains=value) |
+            models.Q(make__icontains=value) |
+            models.Q(model__icontains=value) |
             models.Q(location_city__icontains=value) |
-            models.Q(location_country__icontains=value)
+            models.Q(location_country__icontains=value) |
+            models.Q(color__icontains=value)
         )
     
     class Meta:
         model = VehicleListing
         fields = [
-            'condition', 'price_type', 'status', 'user',
-            'min_price', 'max_price', 'min_mileage', 'max_mileage',
-            'min_year', 'max_year', 'brand', 'model', 'category',
-            'fuel_type', 'transmission', 'city', 'country',
-            'exterior_color', 'interior_color', 'is_featured', 'is_premium'
+            'condition', 'status', 'user', 'year', 'make', 'model',
+            'fuel_type', 'transmission', 'color', 'doors', 'seats',
+            'city', 'country', 'is_featured', 'is_premium'
         ]
