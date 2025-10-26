@@ -7,111 +7,7 @@
 {% block content %}
     <!-- Filter Tabs Section -->
     <div class="homepage-filters">
-      <div class="filter-tabs">
-        <button class="tab-btn active" data-tab="category">Category</button>
-        <button class="tab-btn" data-tab="budget">Budget</button>
-        <button class="tab-btn" data-tab="brand">Brand</button>
-        <button class="tab-btn" data-tab="model">Model</button>
-        <button class="tab-btn" data-tab="cities">Cities</button>
-        <button class="tab-btn" data-tab="body-types">Body Types</button>
-        <button class="tab-btn" data-tab="years">Years</button>
-      </div>
-
-      <div class="carousel-container">
-        <div class="carousel" id="category-carousel">
-          <div class="carousel-track">
-            {% for category in categories %}
-            <div class="filter-item" data-category="{{ category.id }}">
-              <div class="icon">
-                {% if 'Electric' in category.name %}🔋
-                {% elif 'Sports' in category.name %}🏎️
-                {% elif 'Commercial' in category.name %}🚛
-                {% elif 'Luxury' in category.name %}💎
-                {% elif 'New' in category.name %}🆕
-                {% elif 'Used' in category.name %}♻️
-                {% elif 'Featured' in category.name %}⭐
-                {% elif 'Manual' in category.name %}🔧
-                {% else %}🚗{% endif %}
-              </div>
-              <span>{{ category.name }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="carousel" id="budget-carousel">
-          <div class="carousel-track">
-            {% for budget in budget_ranges %}
-            <div class="filter-item" data-min-price="{{ budget.min }}" data-max-price="{{ budget.max|default:'' }}">
-              <div class="icon">
-                {% if budget.min < 30000 %}💵{% elif budget.min < 100000 %}💰{% else %}💎{% endif %}
-              </div>
-              <span>{{ budget.label }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="carousel" id="brand-carousel">
-          <div class="carousel-track">
-            {% for make in makes %}
-            <div class="filter-item" data-make="{{ make }}">
-              <div class="number-badge">{{ forloop.counter }}</div>
-              <div class="icon">🚗</div>
-              <span>{{ make }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="carousel" id="model-carousel">
-          <div class="carousel-track">
-            {% for model in models %}
-            <div class="filter-item" data-model="{{ model.name }}">
-              <div class="icon">🚗</div>
-              <span>{{ model.name }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="carousel" id="cities-carousel">
-          <div class="carousel-track">
-            {% for city in cities %}
-            <div class="filter-item" data-city="{{ city }}">
-              <div class="icon">🏙️</div>
-              <span>{{ city }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="carousel" id="body-types-carousel">
-          <div class="carousel-track">
-            {% for body_type in body_types %}
-            <div class="filter-item" data-body-type="{{ body_type.id }}">
-              <div class="number-badge">{{ forloop.counter }}</div>
-              <div class="icon">
-                {% if 'SUV' in body_type.name %}🚙{% elif 'Van' in body_type.name %}🚐{% elif 'Truck' in body_type.name %}🚛{% elif 'Sports' in body_type.name %}🏎️{% else %}🚗{% endif %}
-              </div>
-              <span>{{ body_type.name }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="carousel" id="years-carousel">
-          <div class="carousel-track">
-            {% for year in years %}
-            <div class="filter-item" data-year="{{ year }}">
-              <div class="icon">📅</div>
-              <span>{{ year }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-    </div>
+      
 
     <!-- Car Listings Section -->
     <div class="main-container">
@@ -329,11 +225,10 @@
         <div id="search-tab" class="sidebar-tab-content">
           <div class="search-container">
             <div class="tab-logo">
-              <img src="images/logos/cars-portal-logo.png" alt="CarsPortal Logo">
+              <img src="{% static 'images/logos/cars-portal-logo.png' %}" alt="CarsPortal Logo">
             </div>
             <div class="search-form">
               <input type="text" placeholder="Search All Vehicles" class="search-input">
-              <button class="search-btn">SEARCH</button>
             </div>
           </div>
         </div>
@@ -376,4 +271,5 @@
 <script src="{% static 'js/script.js' %}"></script>
 <script src="{% static 'js/dynamic-filters.js' %}"></script>
 <script src="{% static 'js/car-grid.js' %}"></script>
+<script src="{% static 'js/live-search.js' %}"></script>
 {% endblock %}

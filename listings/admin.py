@@ -1,7 +1,9 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.contrib import messages
-from .models import VehicleListing, ListingImage, SavedListing, ListingView, ListingStatusLog, ListingStatus
+from django.urls import reverse
+from django.utils.safestring import mark_safe
+from .models import Dealer, VehicleListing, ListingImage, ListingView, ListingStatusLog
 from .status_manager import ListingStatusManager
 
 
@@ -40,14 +42,43 @@ class ListingStatusLogInline(admin.TabularInline):
     ordering = ('-timestamp',)
 
 
+@admin.register(Dealer)
+class DealerAdmin(admin.ModelAdmin):
+    list_display = ('name', 'city', 'country', 'phone', 'rating', 'review_count', 'is_active', 'is_verified')
+    list_filter = ('is_active', 'is_verified', 'country', 'city')
+    search_fields = ('name', 'address', 'phone', 'email')
+    readonly_fields = ('created_at', 'updated_at')
+    prepopulated_fields = {'slug': ('name',)}
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'slug', 'description', 'logo')
+        }),
+        ('Contact Information', {
+            'fields': ('address', 'phone', 'email', 'website', 'hours')
+        }),
+        ('Business Information', {
+            'fields': ('license_number', 'rating', 'review_count')
+        }),
+        ('Location', {
+            'fields': ('city', 'state', 'country', 'latitude', 'longitude')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'is_verified')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+
 @admin.register(VehicleListing)
 class VehicleListingAdmin(admin.ModelAdmin):
-    list_display = ('title', 'user', 'vehicle_info', 'price_display', 'status', 'views_display', 'is_featured', 'created_at')
-    list_filter = ('status', 'condition', 'is_featured', 'is_premium', 'make', 'fuel_type', 'transmission')
-    search_fields = ('title', 'description', 'user__email', 'vin', 'make', 'model')
-    readonly_fields = ('views_count', 'inquiries_count', 'created_at', 'updated_at')
+    list_display = ('title', 'user', 'dealer', 'vehicle_info', 'price_display', 'status', 'views_display', 'is_featured', 'created_at')
+    list_filter = ('status', 'condition', 'is_featured', 'is_premium', 'make', 'fuel_type', 'transmission', 'dealer', 'is_luxury', 'is_certified')
+    search_fields = ('title', 'description', 'user__email', 'vin', 'make__name', 'model__name', 'stock_number')
+    readonly_fields = ('views_count', 'inquiries_count', 'created_at', 'updated_at', 'slug')
     inlines = [ListingImageInline, ListingViewInline, ListingStatusLogInline]
-    prepopulated_fields = {'slug': ('title',)}
     list_per_page = 25
     date_hierarchy = 'created_at'
     actions = ['publish_listings', 'suspend_listings', 'mark_as_sold', 'reject_listings']
@@ -105,7 +136,7 @@ class VehicleListingAdmin(admin.ModelAdmin):
         
         for listing in queryset:
             try:
-                listing.suspend(user=request.user, reason="Suspended by admin")
+                listing.suspend(reason="Suspended by admin", user=request.user)
                 success_count += 1
             except Exception as e:
                 error_count += 1
@@ -145,7 +176,7 @@ class VehicleListingAdmin(admin.ModelAdmin):
         
         for listing in queryset:
             try:
-                listing.reject(user=request.user, reason="Rejected by admin")
+                listing.reject(reason="Rejected by admin", user=request.user)
                 success_count += 1
             except Exception as e:
                 error_count += 1
@@ -158,12 +189,22 @@ class VehicleListingAdmin(admin.ModelAdmin):
     
     reject_listings.short_description = "Reject selected listings"
     
+    def save_model(self, request, obj, form, change):
+        """Custom save method to handle listing saving properly."""
+        try:
+            # Save the object normally
+            super().save_model(request, obj, form, change)
+        except Exception as e:
+            # Log the error and re-raise with more context
+            messages.error(request, f"Error saving listing: {str(e)}")
+            raise
+    
     fieldsets = (
         ('Basic Information', {
             'fields': ('title', 'slug', 'user', 'condition', 'status')
         }),
         ('Vehicle Details', {
-            'fields': ('year', 'make', 'model', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seats', 'color', 'vin')
+            'fields': ('year', 'make', 'model', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seating_capacity', 'exterior_color', 'vin')
         }),
         ('Pricing and Mileage', {
             'fields': ('price', 'kilometers')
@@ -205,13 +246,6 @@ class ListingImageAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" width="100" height="75" />', obj.thumbnail.url)
         return "-"
     thumbnail_preview.short_description = 'Thumbnail Preview'
-
-
-@admin.register(SavedListing)
-class SavedListingAdmin(admin.ModelAdmin):
-    list_display = ('user', 'listing', 'created_at')
-    search_fields = ('user__email', 'listing__title')
-    list_filter = ('created_at',)
 
 
 @admin.register(ListingView)

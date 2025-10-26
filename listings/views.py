@@ -12,6 +12,8 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import rest_framework as django_filters
+from django.core.cache import cache
+from django.db.models import Prefetch
 
 # Import activity logging utilities
 from admin_panel.utils import log_listing_activity, log_status_change_activity
@@ -32,6 +34,7 @@ from .security import (
     RateLimitMixin, APISecurityMixin, CacheControlMixin,
     rate_limit, admin_required, get_rate_limit
 )
+from .filters import VehicleListingFilter as OptimizedVehicleListingFilter
 
 User = get_user_model()
 
@@ -86,7 +89,7 @@ class VehicleListingFilter(django_filters.FilterSet):
         ('used', 'Used'),
         ('certified_pre_owned', 'Certified Pre-Owned'),
     ])
-    color = django_filters.CharFilter(field_name='color', lookup_expr='icontains')
+    exterior_color = django_filters.CharFilter(field_name='exterior_color', lookup_expr='icontains')
     body_type = django_filters.ModelChoiceFilter(
         field_name='body_type',
         queryset=None,  # Will be set in __init__
@@ -129,21 +132,52 @@ class VehicleListingFilter(django_filters.FilterSet):
 
 
 class VehicleListingListView(RateLimitMixin, APISecurityMixin, CacheControlMixin, generics.ListAPIView):
-    """List all published vehicle listings with filtering and search."""
+    """List all published vehicle listings with PostgreSQL-optimized filtering and pagination."""
     serializer_class = VehicleListingListSerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_class = VehicleListingFilter
-    ordering_fields = ['price', 'year', 'kilometers', 'created_at', 'views_count']
+    filterset_class = OptimizedVehicleListingFilter
+    ordering_fields = ['price', 'year', 'kilometers', 'created_at', 'views_count', 'published_at']
     ordering = ['-created_at']
     cache_timeout = 300  # 5 minutes for list views
     
     def get_queryset(self):
-        """Get published listings with optimized queries."""
-        return VehicleListing.objects.filter(
-            status='published'
-        ).select_related('user').prefetch_related('images')
+        """Get published listings with PostgreSQL-optimized queries."""
+        # Use cache for frequently accessed data
+        cache_key = 'published_listings_base_queryset'
+        queryset = cache.get(cache_key)
+        
+        if queryset is None:
+            queryset = VehicleListing.objects.filter(
+                status='published'
+            ).select_related(
+                'user',
+                'dealer'
+            ).prefetch_related(
+                Prefetch(
+                    'images',
+                    queryset=ListingImage.objects.filter(is_primary=True).order_by('order')[:1],
+                    to_attr='primary_images'
+                ),
+                Prefetch(
+                    'images',
+                    queryset=ListingImage.objects.order_by('order')[:5],
+                    to_attr='preview_images'
+                )
+            ).only(
+                # Only fetch necessary fields for list view
+                'id', 'slug', 'title', 'price', 'year', 'make', 'model',
+                'kilometers', 'fuel_type', 'transmission', 'condition',
+                'location_city', 'location_country', 'is_featured', 'is_premium',
+                'created_at', 'published_at', 'views_count', 'user__email',
+                'dealer__name', 'exterior_color', 'body_type'
+            )
+            
+            # Cache for 5 minutes
+            cache.set(cache_key, queryset, 300)
+        
+        return queryset
 
 
 class VehicleListingDetailView(generics.RetrieveAPIView):
@@ -534,46 +568,157 @@ def popular_makes_view(request):
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 def filter_data_view(request):
-    """Get all filter data for listings."""
-    # Get published listings for filter data
-    published_listings = VehicleListing.objects.filter(status='published')
+    """Get all filter data for listings with PostgreSQL optimization and caching."""
+    # Check cache first
+    cache_key = 'filter_data_optimized'
+    cached_data = cache.get(cache_key)
     
-    # Get unique makes
-    makes = published_listings.values_list('make', flat=True).distinct().order_by('make')
-    makes = [make for make in makes if make]
+    if cached_data:
+        return Response(cached_data)
     
-    # Get unique models
-    models = published_listings.values_list('model', flat=True).distinct().order_by('model')
-    models = [model for model in models if model]
-    
-    # Get unique cities
-    cities = published_listings.values_list('location_city', flat=True).distinct().order_by('location_city')
-    cities = [city for city in cities if city]
-    
-    # Get unique years
-    years = published_listings.values_list('year', flat=True).distinct().order_by('-year')
-    years = [year for year in years if year]
-    
-    # Get body types from VehicleCategory
-    body_types = VehicleCategory.objects.filter(is_active=True).values('id', 'name').order_by('name')
-    
-    # Get price range
-    price_stats = published_listings.aggregate(
-        min_price=Min('price'),
-        max_price=Max('price')
+    # Get published listings for filter data with optimized query
+    published_listings = VehicleListing.objects.filter(status='published').select_related(
+        'make', 'model', 'fuel_type', 'transmission', 'body_type'
     )
     
-    return Response({
-        'makes': makes,
-        'models': models,
-        'cities': cities,
-        'years': years,
-        'body_types': list(body_types),
-        'price_range': {
-            'min': price_stats['min_price'] or 0,
-            'max': price_stats['max_price'] or 100000
-        }
-    })
+    # Use PostgreSQL-optimized aggregations
+    filter_data = {}
+    
+    # Get unique makes with counts (PostgreSQL optimized)
+    makes_data = published_listings.values('make__name').annotate(
+        count=Count('make__name')
+    ).filter(make__name__isnull=False).exclude(make__name='').order_by('make__name')
+    filter_data['makes'] = [
+        {'value': item['make__name'], 'label': item['make__name'], 'count': item['count']}
+        for item in makes_data
+    ]
+    
+    # Get unique models with counts
+    models_data = published_listings.values('model__name').annotate(
+        count=Count('model__name')
+    ).filter(model__name__isnull=False).exclude(model__name='').order_by('model__name')
+    filter_data['models'] = [
+        {'value': item['model__name'], 'label': item['model__name'], 'count': item['count']}
+        for item in models_data
+    ]
+    
+    # Get unique cities with counts
+    cities_data = published_listings.values('location_city').annotate(
+        count=Count('location_city')
+    ).filter(location_city__isnull=False).exclude(location_city='').order_by('location_city')
+    filter_data['cities'] = [
+        {'value': item['location_city'], 'label': item['location_city'], 'count': item['count']}
+        for item in cities_data
+    ]
+    
+    # Get unique years with counts
+    years_data = published_listings.values('year').annotate(
+        count=Count('year')
+    ).filter(year__isnull=False).order_by('-year')
+    filter_data['years'] = [
+        {'value': item['year'], 'label': str(item['year']), 'count': item['count']}
+        for item in years_data
+    ]
+    
+    # Get fuel types with counts
+    fuel_types_data = published_listings.values('fuel_type__name').annotate(
+        count=Count('fuel_type__name')
+    ).filter(fuel_type__name__isnull=False).exclude(fuel_type__name='').order_by('fuel_type__name')
+    filter_data['fuel_types'] = [
+        {'value': item['fuel_type__name'], 'label': item['fuel_type__name'].replace('_', ' ').title(), 'count': item['count']}
+        for item in fuel_types_data
+    ]
+    
+    # Get transmissions with counts
+    transmissions_data = published_listings.values('transmission__name').annotate(
+        count=Count('transmission__name')
+    ).filter(transmission__name__isnull=False).exclude(transmission__name='').order_by('transmission__name')
+    filter_data['transmissions'] = [
+        {'value': item['transmission__name'], 'label': item['transmission__name'].replace('_', ' ').title(), 'count': item['count']}
+        for item in transmissions_data
+    ]
+    
+    # Get conditions with counts
+    conditions_data = published_listings.values('condition').annotate(
+        count=Count('condition')
+    ).filter(condition__isnull=False).exclude(condition='').order_by('condition')
+    filter_data['conditions'] = [
+        {'value': item['condition'], 'label': item['condition'].replace('_', ' ').title(), 'count': item['count']}
+        for item in conditions_data
+    ]
+    
+    # Get body types with counts
+    body_types_data = published_listings.values('body_type__name').annotate(
+        count=Count('body_type__name')
+    ).filter(body_type__name__isnull=False).exclude(body_type__name='').order_by('body_type__name')
+    filter_data['body_types'] = [
+        {'value': item['body_type__name'], 'label': item['body_type__name'].replace('_', ' ').title(), 'count': item['count']}
+        for item in body_types_data
+    ]
+    
+    # Get exterior colors with counts
+    colors_data = published_listings.values('exterior_color').annotate(
+        count=Count('exterior_color')
+    ).filter(exterior_color__isnull=False).exclude(exterior_color='').order_by('exterior_color')
+    filter_data['exterior_colors'] = [
+        {'value': item['exterior_color'], 'label': item['exterior_color'].title(), 'count': item['count']}
+        for item in colors_data
+    ]
+    
+    # Get price range and statistics
+    price_stats = published_listings.aggregate(
+        min_price=Min('price'),
+        max_price=Max('price'),
+        avg_price=Avg('price'),
+        count=Count('price')
+    )
+    
+    filter_data['price_range'] = {
+        'min': int(price_stats['min_price'] or 0),
+        'max': int(price_stats['max_price'] or 100000),
+        'avg': int(price_stats['avg_price'] or 0),
+        'count': price_stats['count']
+    }
+    
+    # Get year range
+    year_stats = published_listings.aggregate(
+        min_year=Min('year'),
+        max_year=Max('year')
+    )
+    
+    filter_data['year_range'] = {
+        'min': year_stats['min_year'] or 2000,
+        'max': year_stats['max_year'] or timezone.now().year
+    }
+    
+    # Predefined filter ranges for better UX
+    filter_data['price_ranges'] = [
+        {'value': 'under_10k', 'label': 'Under $10,000', 'min': 0, 'max': 9999},
+        {'value': '10k_25k', 'label': '$10,000 - $25,000', 'min': 10000, 'max': 24999},
+        {'value': '25k_50k', 'label': '$25,000 - $50,000', 'min': 25000, 'max': 49999},
+        {'value': '50k_100k', 'label': '$50,000 - $100,000', 'min': 50000, 'max': 99999},
+        {'value': 'over_100k', 'label': 'Over $100,000', 'min': 100000, 'max': None},
+    ]
+    
+    filter_data['year_ranges'] = [
+        {'value': 'last_year', 'label': 'Last Year', 'min': 2023, 'max': None},
+        {'value': 'last_3_years', 'label': 'Last 3 Years', 'min': 2021, 'max': None},
+        {'value': 'last_5_years', 'label': 'Last 5 Years', 'min': 2019, 'max': None},
+        {'value': 'last_10_years', 'label': 'Last 10 Years', 'min': 2014, 'max': None},
+        {'value': 'older', 'label': 'Older than 10 Years', 'min': None, 'max': 2013},
+    ]
+    
+    filter_data['kilometers_ranges'] = [
+        {'value': 'under_50k', 'label': 'Under 50,000 km', 'min': 0, 'max': 49999},
+        {'value': '50k_100k', 'label': '50,000 - 100,000 km', 'min': 50000, 'max': 99999},
+        {'value': '100k_150k', 'label': '100,000 - 150,000 km', 'min': 100000, 'max': 149999},
+        {'value': 'over_150k', 'label': 'Over 150,000 km', 'min': 150000, 'max': None},
+    ]
+    
+    # Cache for 10 minutes
+    cache.set(cache_key, filter_data, 600)
+    
+    return Response(filter_data)
 
 
 @api_view(['GET'])
@@ -624,48 +769,69 @@ def advanced_search_view(request):
         queryset = queryset.filter(
             Q(title__icontains=search_query) |
             Q(description__icontains=search_query) |
-            Q(make__icontains=search_query) |
-            Q(model__icontains=search_query)
+            Q(make__name__icontains=search_query) |
+            Q(model__name__icontains=search_query)
         )
     
     if make:
-        queryset = queryset.filter(make__icontains=make)
+        queryset = queryset.filter(make__name__icontains=make)
     
     if model:
-        queryset = queryset.filter(model__icontains=model)
+        queryset = queryset.filter(model__name__icontains=model)
     
-    if body_type_id:
-        queryset = queryset.filter(body_type_id=body_type_id)
+    if body_type_id and body_type_id.strip():
+        try:
+            queryset = queryset.filter(body_type_id=int(body_type_id))
+        except (ValueError, TypeError):
+            pass  # Skip invalid body_type_id
     
-    if min_price:
-        queryset = queryset.filter(price__gte=min_price)
+    if min_price and min_price.strip():
+        try:
+            queryset = queryset.filter(price__gte=float(min_price))
+        except (ValueError, TypeError):
+            pass  # Skip invalid min_price
     
-    if max_price:
-        queryset = queryset.filter(price__lte=max_price)
+    if max_price and max_price.strip():
+        try:
+            queryset = queryset.filter(price__lte=float(max_price))
+        except (ValueError, TypeError):
+            pass  # Skip invalid max_price
     
-    if min_year:
-        queryset = queryset.filter(year__gte=min_year)
+    if min_year and min_year.strip():
+        try:
+            queryset = queryset.filter(year__gte=int(min_year))
+        except (ValueError, TypeError):
+            pass  # Skip invalid min_year
     
-    if max_year:
-        queryset = queryset.filter(year__lte=max_year)
+    if max_year and max_year.strip():
+        try:
+            queryset = queryset.filter(year__lte=int(max_year))
+        except (ValueError, TypeError):
+            pass  # Skip invalid max_year
     
     if city:
         queryset = queryset.filter(location_city__icontains=city)
     
     if fuel_type:
-        queryset = queryset.filter(fuel_type__icontains=fuel_type)
+        queryset = queryset.filter(fuel_type__name__icontains=fuel_type)
     
     if transmission:
-        queryset = queryset.filter(transmission__icontains=transmission)
+        queryset = queryset.filter(transmission__name__icontains=transmission)
     
     if condition:
         queryset = queryset.filter(condition__icontains=condition)
     
-    if min_kilometers:
-        queryset = queryset.filter(kilometers__gte=min_kilometers)
+    if min_kilometers and min_kilometers.strip():
+        try:
+            queryset = queryset.filter(kilometers__gte=float(min_kilometers))
+        except (ValueError, TypeError):
+            pass  # Skip invalid min_kilometers
     
-    if max_kilometers:
-        queryset = queryset.filter(kilometers__lte=max_kilometers)
+    if max_kilometers and max_kilometers.strip():
+        try:
+            queryset = queryset.filter(kilometers__lte=float(max_kilometers))
+        except (ValueError, TypeError):
+            pass  # Skip invalid max_kilometers
     
     if is_featured and is_featured.lower() == 'true':
         queryset = queryset.filter(is_featured=True)
@@ -681,7 +847,7 @@ def advanced_search_view(request):
         queryset = queryset.order_by('-created_at')
     
     # Optimize query
-    queryset = queryset.select_related('user', 'body_type').prefetch_related('images')
+    queryset = queryset.select_related('user', 'body_type', 'make', 'model', 'fuel_type', 'transmission').prefetch_related('images')
     
     # Apply pagination
     paginator = Paginator(queryset, 12)
@@ -793,6 +959,67 @@ def bulk_status_change_view(request):
         'message': f'Processed {len(results)} listings',
         'results': results
     })
+
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def live_search_view(request):
+    """
+    Live search endpoint for real-time search suggestions.
+    
+    Returns quick search results with minimal data for fast response times.
+    Optimized for live search with debouncing on the frontend.
+    """
+    query = request.GET.get('q', '').strip()
+    
+    if not query or len(query) < 2:
+        return Response({
+            'suggestions': [],
+            'count': 0
+        })
+    
+    # Limit results for performance
+    limit = min(int(request.GET.get('limit', 8)), 20)
+    
+    try:
+        # Use optimized query with select_related for better performance
+        listings = VehicleListing.objects.filter(
+            Q(title__icontains=query) |
+            Q(make__name__icontains=query) |
+            Q(model__name__icontains=query) |
+            Q(location_city__icontains=query),
+            status='published'
+        ).select_related('make', 'model').only(
+            'id', 'slug', 'title', 'price', 'year', 'location_city',
+            'make__name', 'model__name'
+        )[:limit]
+        
+        suggestions = []
+        for listing in listings:
+            suggestions.append({
+                'id': listing.id,
+                'slug': listing.slug,
+                'title': listing.title,
+                'make': listing.make.name if listing.make else '',
+                'model': listing.model.name if listing.model else '',
+                'year': listing.year,
+                'price': listing.price,
+                'location': listing.location_city,
+                'url': f'/car/{listing.slug}/'
+            })
+        
+        return Response({
+            'suggestions': suggestions,
+            'count': len(suggestions),
+            'query': query
+        })
+        
+    except Exception as e:
+        return Response({
+            'suggestions': [],
+            'count': 0,
+            'error': 'Search temporarily unavailable'
+        }, status=500)
 
 
 @api_view(['GET'])

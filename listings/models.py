@@ -14,6 +14,59 @@ from .validators import (
 )
 
 
+class Dealer(models.Model):
+    """Dealer/Seller information model."""
+    name = models.CharField(max_length=255, help_text='Dealer name')
+    slug = models.SlugField(max_length=300, unique=True, blank=True)
+    logo = models.ImageField(upload_to='dealers/logos/', blank=True, null=True, help_text='Dealer logo')
+    description = models.TextField(blank=True, null=True, help_text='Dealer description')
+    
+    # Contact Information
+    address = models.TextField(help_text='Dealer address')
+    phone = models.CharField(max_length=20, help_text='Dealer phone number')
+    email = models.EmailField(blank=True, null=True, help_text='Dealer email')
+    website = models.URLField(blank=True, null=True, help_text='Dealer website')
+    
+    # Business Information
+    hours = models.CharField(max_length=255, default='Open until 9:00 PM', help_text='Business hours')
+    license_number = models.CharField(max_length=100, blank=True, null=True, help_text='Dealer license number')
+    
+    # Rating and Reviews
+    rating = models.DecimalField(max_digits=3, decimal_places=1, default=4.8, validators=[MinValueValidator(0), MaxValueValidator(5)])
+    review_count = models.PositiveIntegerField(default=0, help_text='Number of reviews')
+    
+    # Location
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100, blank=True, null=True)
+    country = models.CharField(max_length=100, default='UAE')
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    is_verified = models.BooleanField(default=False)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['is_active']),
+            models.Index(fields=['is_verified']),
+            models.Index(fields=['city', 'country']),
+        ]
+    
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return self.name
+
+
 class ListingStatus(models.TextChoices):
     DRAFT = 'draft', 'Draft'
     PENDING_REVIEW = 'pending_review', 'Pending Review'
@@ -49,6 +102,7 @@ class VehicleListing(models.Model):
     title = models.CharField(max_length=255, help_text='Vehicle listing title')
     slug = models.SlugField(max_length=300, unique=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='listings')
+    dealer = models.ForeignKey(Dealer, on_delete=models.CASCADE, related_name='listings', blank=True, null=True)
     description = models.TextField(help_text='Detailed description of the vehicle')
     price = models.DecimalField(
         max_digits=12, 
@@ -56,6 +110,8 @@ class VehicleListing(models.Model):
         validators=[MinValueValidator(0)],
         help_text='Vehicle price'
     )
+    original_price = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True, validators=[MinValueValidator(0)], help_text='Original price for showing discounts')
+    estimated_monthly_payment = models.DecimalField(max_digits=8, decimal_places=2, blank=True, null=True, validators=[MinValueValidator(0)], help_text='Estimated monthly payment')
     
     # Vehicle details (required)
     year = models.PositiveIntegerField(
@@ -66,8 +122,9 @@ class VehicleListing(models.Model):
         ],
         help_text='Vehicle year'
     )
-    make = models.CharField(max_length=100, default="Unknown", help_text='Vehicle make/brand')
-    model = models.CharField(max_length=100, default="Unknown", help_text='Vehicle model')
+    make = models.ForeignKey(Brand, on_delete=models.CASCADE, related_name='listings')
+    model = models.ForeignKey(VehicleModel, on_delete=models.CASCADE, related_name='listings')
+    trim = models.CharField(max_length=100, blank=True, null=True, help_text='Vehicle trim level')
     
     # Vehicle specifications
     kilometers = models.PositiveIntegerField(
@@ -75,38 +132,27 @@ class VehicleListing(models.Model):
         validators=[MinValueValidator(0)],
         help_text='Vehicle mileage in kilometers'
     )
-    fuel_type = models.CharField(
-        max_length=20,
-        choices=[
-            ('gasoline', 'Gasoline'),
-            ('diesel', 'Diesel'),
-            ('electric', 'Electric'),
-            ('hybrid', 'Hybrid'),
-            ('plug_in_hybrid', 'Plug-in Hybrid'),
-            ('lpg', 'LPG'),
-            ('cng', 'CNG'),
-        ],
-        default='gasoline',
-        help_text='Vehicle fuel type'
-    )
+    mileage = models.PositiveIntegerField(blank=True, null=True, validators=[MinValueValidator(0)], help_text='Mileage in miles')
+    location = models.CharField(max_length=255, blank=True, null=True, help_text='Vehicle location')
+    fuel_type = models.ForeignKey(FuelType, on_delete=models.CASCADE, related_name='listings')
     condition = models.CharField(
         max_length=20, 
         choices=ConditionType.choices, 
         default=ConditionType.USED,
         help_text='Vehicle condition'
     )
-    transmission = models.CharField(
-        max_length=20,
-        choices=[
-            ('automatic', 'Automatic'),
-            ('manual', 'Manual'),
-            ('cvt', 'CVT'),
-            ('semi_automatic', 'Semi-Automatic'),
-        ],
-        default='manual',
-        help_text='Vehicle transmission type'
-    )
-    color = models.CharField(max_length=50, default="White", help_text='Vehicle color')
+    transmission = models.ForeignKey(TransmissionType, on_delete=models.CASCADE, related_name='listings')
+    
+    # Inventory Information
+    stock_number = models.CharField(max_length=50, blank=True, null=True, help_text='Vehicle stock number')
+    
+    # Vehicle Status Badges
+    is_luxury = models.BooleanField(default=False, help_text='Is this a luxury vehicle')
+    is_certified = models.BooleanField(default=False, help_text='Is this a certified vehicle')
+    
+    # Vehicle appearance
+    exterior_color = models.CharField(max_length=50, default="White", help_text='Vehicle exterior color')
+    interior_color = models.CharField(max_length=50, blank=True, null=True, help_text='Interior color')
     body_type = models.ForeignKey(
         VehicleCategory, 
         on_delete=models.SET_NULL, 
@@ -116,12 +162,35 @@ class VehicleListing(models.Model):
         help_text='Vehicle body type/category (e.g., Sedan, SUV, Hatchback)'
     )
     
-    # Additional vehicle details
-    color_interior = models.CharField(max_length=50, blank=True, null=True)
-    vin = models.CharField(max_length=17, blank=True, null=True, verbose_name='VIN')
+    # Engine and Performance
+    engine_type = models.CharField(max_length=100, blank=True, null=True, help_text='Engine type description')
     engine_size = models.DecimalField(max_digits=4, decimal_places=1, blank=True, null=True, help_text='Engine size in liters')
+    horsepower = models.PositiveIntegerField(blank=True, null=True, help_text='Engine horsepower')
+    torque = models.PositiveIntegerField(blank=True, null=True, help_text='Engine torque in lb-ft')
+    drivetrain = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('fwd', 'Front-Wheel Drive'),
+        ('rwd', 'Rear-Wheel Drive'),
+        ('awd', 'All-Wheel Drive'),
+        ('4wd', '4-Wheel Drive'),
+    ], help_text='Drivetrain type')
+    
+    # Fuel Economy
+    fuel_economy_city = models.PositiveIntegerField(blank=True, null=True, help_text='City MPG')
+    fuel_economy_highway = models.PositiveIntegerField(blank=True, null=True, help_text='Highway MPG')
+    
+    # Performance Metrics
+    acceleration_0_60 = models.DecimalField(max_digits=4, decimal_places=1, blank=True, null=True, help_text='0-60 mph time in seconds')
+    top_speed = models.PositiveIntegerField(blank=True, null=True, help_text='Top speed in mph')
+    towing_capacity = models.PositiveIntegerField(blank=True, null=True, help_text='Towing capacity in lbs')
+    curb_weight = models.PositiveIntegerField(blank=True, null=True, help_text='Curb weight in lbs')
+    
+    # Safety and Capacity
+    safety_rating = models.DecimalField(max_digits=3, decimal_places=1, blank=True, null=True, validators=[MinValueValidator(0), MaxValueValidator(5)], help_text='Safety rating out of 5')
+    seating_capacity = models.PositiveIntegerField(blank=True, null=True, validators=[MinValueValidator(1), MaxValueValidator(20)], help_text='Number of seats')
+    
+    # Additional vehicle details
+    vin = models.CharField(max_length=17, blank=True, null=True, verbose_name='VIN')
     doors = models.PositiveSmallIntegerField(blank=True, null=True, validators=[MinValueValidator(2), MaxValueValidator(6)])
-    seats = models.PositiveSmallIntegerField(blank=True, null=True, validators=[MinValueValidator(1), MaxValueValidator(12)])
     
     # Listing management
     status = models.CharField(max_length=20, choices=ListingStatus.choices, default=ListingStatus.DRAFT)
@@ -157,38 +226,101 @@ class VehicleListing(models.Model):
     class Meta:
         ordering = ['-created_at']
         indexes = [
+            # Status and visibility indexes
             models.Index(fields=['status']),
-            models.Index(fields=['is_featured']),
-            models.Index(fields=['is_premium']),
-            models.Index(fields=['condition']),
-            models.Index(fields=['fuel_type']),
-            models.Index(fields=['transmission']),
-            models.Index(fields=['body_type']),
-            models.Index(fields=['make', 'model']),
-            models.Index(fields=['year']),
-            models.Index(fields=['price']),
-            models.Index(fields=['kilometers']),
-            models.Index(fields=['location_city', 'location_country']),
-            models.Index(fields=['created_at']),
-            models.Index(fields=['published_at']),
+            models.Index(fields=['status', 'is_featured']),
+            models.Index(fields=['status', 'is_premium']),
+            models.Index(fields=['status', 'published_at']),
+            
+            # Search and filtering indexes
+            models.Index(fields=['make', 'model', 'year']),
+            models.Index(fields=['make', 'status']),
+            models.Index(fields=['condition', 'status']),
+            models.Index(fields=['fuel_type', 'status']),
+            models.Index(fields=['transmission', 'status']),
+            models.Index(fields=['body_type', 'status']),
+            
+            # Price and range indexes
+            models.Index(fields=['price', 'status']),
+            models.Index(fields=['year', 'status']),
+            models.Index(fields=['kilometers', 'status']),
+            
+            # Location indexes
+            models.Index(fields=['location_city', 'location_country', 'status']),
+            models.Index(fields=['location_city', 'status']),
+            
+            # Date and performance indexes
+            models.Index(fields=['created_at', 'status']),
+            models.Index(fields=['published_at', 'status']),
+            models.Index(fields=['views_count', 'status']),
+            
+            # User and dealer indexes
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['dealer', 'status']),
+            
+            # Composite indexes for common queries
+            models.Index(fields=['status', 'is_featured', 'created_at']),
+            models.Index(fields=['status', 'price', 'year']),
+            models.Index(fields=['make', 'model', 'year', 'status']),
+            
+            # Full-text search preparation (PostgreSQL specific)
+            models.Index(fields=['title']),
+            models.Index(fields=['slug']),
+        ]
+        
+        # PostgreSQL specific constraints
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(price__gte=0),
+                name='positive_price'
+            ),
+            models.CheckConstraint(
+                check=models.Q(year__gte=1900),
+                name='valid_year'
+            ),
+            models.CheckConstraint(
+                check=models.Q(kilometers__gte=0),
+                name='positive_kilometers'
+            ),
         ]
 
     def save(self, *args, **kwargs):
-        # Generate slug if not provided
-        if not self.slug:
-            base_slug = slugify(f"{self.make}-{self.model}-{self.year}")
-            self.slug = f"{base_slug}-{self.id if self.id else ''}"
+        # Check if this is a partial update (update_fields specified)
+        update_fields = kwargs.get('update_fields')
         
-        # Set published_at when status changes to published
-        if self.status == ListingStatus.PUBLISHED and not self.published_at:
-            self.published_at = timezone.now()
+        # Generate slug if not provided and not a partial update
+        if not self.slug and not update_fields:
+            try:
+                # Ensure make and model are available
+                if self.make and self.model:
+                    base_slug = slugify(f"{self.make.name}-{self.model.name}-{self.year}")
+                    self.slug = f"{base_slug}-{self.id if self.id else 'temp'}"
+                else:
+                    # Fallback slug if make/model not available
+                    self.slug = f"listing-{self.year}-{self.id if self.id else 'temp'}"
+            except Exception:
+                # Ultimate fallback
+                self.slug = f"listing-{timezone.now().strftime('%Y%m%d%H%M%S')}"
+        
+        # Set published_at when status changes to published (only if status is being updated)
+        if (not update_fields or 'status' in update_fields or 'published_at' in update_fields):
+            if self.status == ListingStatus.PUBLISHED and not self.published_at:
+                self.published_at = timezone.now()
         
         super().save(*args, **kwargs)
         
-        # Update slug with ID for new listings
-        if not self.slug.endswith(str(self.id)):
-            self.slug = f"{slugify(f"{self.make}-{self.model}-{self.year}")}-{self.id}"
-            super().save(update_fields=['slug'])
+        # Update slug with ID for new listings (only if not a partial update)
+        if not update_fields and self.id and self.slug and 'temp' in self.slug:
+            try:
+                if self.make and self.model:
+                    new_slug = f"{slugify(f"{self.make.name}-{self.model.name}-{self.year}")}-{self.id}"
+                else:
+                    new_slug = f"listing-{self.year}-{self.id}"
+                self.slug = new_slug
+                super().save(update_fields=['slug'])
+            except Exception:
+                # If updating slug fails, keep the temporary one
+                pass
 
     def __str__(self):
         return self.title

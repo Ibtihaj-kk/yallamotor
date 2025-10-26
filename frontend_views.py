@@ -1,6 +1,9 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from listings.models import VehicleListing
@@ -184,3 +187,94 @@ def search_listings_view(request):
     }
     
     return render(request, 'frontend/search_results.html', context)
+
+
+def car_detail_view(request, slug):
+    """
+    Car detail view that renders the car-details.html template with dynamic data
+    """
+    from django.shortcuts import get_object_or_404
+    
+    # Get the car listing by slug
+    car = get_object_or_404(
+        VehicleListing.objects.select_related('user').prefetch_related('images'),
+        slug=slug,
+        status='published'
+    )
+    
+    # Increment view count
+    car.views_count += 1
+    car.save(update_fields=['views_count'])
+    
+    # Get similar cars (same make or model)
+    similar_cars = VehicleListing.objects.filter(
+        status='published'
+    ).filter(
+        Q(make=car.make) | Q(model=car.model)
+    ).exclude(id=car.id)[:6]
+    
+    context = {
+        'car': car,
+        'similar_cars': similar_cars,
+    }
+    
+    return render(request, 'frontend/car-details.html', context)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def schedule_test_drive_view(request):
+    """
+    Handle test drive scheduling form submission
+    """
+    try:
+        # Get form data
+        vehicle_id = request.POST.get('vehicle_id')
+        vehicle_title = request.POST.get('vehicle_title')
+        customer_name = request.POST.get('customer_name')
+        customer_email = request.POST.get('customer_email')
+        customer_phone = request.POST.get('customer_phone')
+        preferred_date = request.POST.get('preferred_date')
+        preferred_time = request.POST.get('preferred_time')
+        message = request.POST.get('message', '')
+        
+        # Validate required fields
+        if not all([vehicle_id, customer_name, customer_email, customer_phone, preferred_date, preferred_time]):
+            return JsonResponse({
+                'success': False,
+                'message': 'Please fill in all required fields.'
+            }, status=400)
+        
+        # Verify the vehicle exists
+        try:
+            vehicle = get_object_or_404(VehicleListing, id=vehicle_id, status='published')
+        except:
+            return JsonResponse({
+                'success': False,
+                'message': 'Vehicle not found.'
+            }, status=404)
+        
+        # Here you would typically save the test drive request to a database
+        # For now, we'll just return a success response
+        # You can create a TestDriveRequest model later if needed
+        
+        # Log the test drive request (you can replace this with database save)
+        print(f"Test Drive Request:")
+        print(f"Vehicle: {vehicle_title} (ID: {vehicle_id})")
+        print(f"Customer: {customer_name}")
+        print(f"Email: {customer_email}")
+        print(f"Phone: {customer_phone}")
+        print(f"Preferred Date: {preferred_date}")
+        print(f"Preferred Time: {preferred_time}")
+        print(f"Message: {message}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Thank you {customer_name}! Your test drive request for {vehicle_title} has been submitted successfully. We will contact you soon to confirm the appointment.'
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': 'An error occurred while processing your request. Please try again.'
+        }, status=500)

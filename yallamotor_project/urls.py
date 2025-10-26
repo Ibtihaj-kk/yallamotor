@@ -19,7 +19,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from listings.views import dashboard_summary_view
-from frontend_views import homepage_view, filter_listings_api, search_listings_view
+from frontend_views import homepage_view, filter_listings_api, search_listings_view, car_detail_view, schedule_test_drive_view
 
 # API Documentation imports
 from rest_framework import permissions
@@ -49,9 +49,14 @@ urlpatterns = [
     path('api/subscriptions/', include('subscriptions.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/content/', include('content.urls')),
+    path('parts/', include('parts.urls')),
+    path('shop/', include('parts.urls')),  # Shop alias for parts
+    path('api/parts/', include('parts.urls')),  # API endpoint for parts
     path('', homepage_view, name='home'),
     path('api/filter-listings/', filter_listings_api, name='filter-listings'),
     path('search/', search_listings_view, name='search-listings'),
+    path('car/<slug:slug>/', car_detail_view, name='car-detail'),
+    path('schedule-test-drive/', schedule_test_drive_view, name='schedule_test_drive'),
     # Dashboard endpoints
     path('api/dashboard/summary/', dashboard_summary_view, name='dashboard-summary'),
     

@@ -3,8 +3,17 @@ Custom validators for listings app.
 """
 from django.core.exceptions import ValidationError
 from django.utils.deconstruct import deconstructible
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy
 import os
+
+# Safe translation function that handles None cases
+def _(message):
+    """Safe translation function that handles None cases."""
+    try:
+        result = gettext_lazy(message)
+        return result if result is not None else message
+    except Exception:
+        return message
 
 try:
     import magic

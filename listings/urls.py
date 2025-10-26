@@ -19,6 +19,7 @@ urlpatterns = [
     path('filter-data/', views.filter_data_view, name='filter-data'),
     path('models-by-make/', views.models_by_make_view, name='models-by-make'),
     path('search/', views.advanced_search_view, name='advanced-search'),
+    path('live-search/', views.live_search_view, name='live-search'),
     
     # Listing management endpoints (authenticated)
     path('create/', views.VehicleListingCreateView.as_view(), name='listing-create'),

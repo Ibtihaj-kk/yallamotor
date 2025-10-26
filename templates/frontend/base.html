@@ -70,9 +70,23 @@
             <i class="fa-solid fa-chevron-down navbar-dropdown-arrow"></i>
           </div>
           <div class="navbar-dropdown-menu">
-            <a href="#" class="navbar-dropdown-link">Login</a>
-            <span class="navbar-dropdown-divider">|</span>
-            <a href="#" class="navbar-dropdown-link">Register</a>
+            {% if user.is_authenticated %}
+              <!-- Authenticated user menu -->
+              <a href="{% url 'parts:my_orders' %}" class="navbar-dropdown-link">My Orders</a>
+              {% if user.role == 'SELLER' or user.role == 'ADMIN' or user.is_staff or user.is_superuser %}
+                <span class="navbar-dropdown-divider">|</span>
+                <a href="{% url 'parts:my_inventory' %}" class="navbar-dropdown-link">My Inventory</a>
+              {% endif %}
+              <span class="navbar-dropdown-divider">|</span>
+              <a href="#" class="navbar-dropdown-link">Profile</a>
+              <span class="navbar-dropdown-divider">|</span>
+              <a href="#" class="navbar-dropdown-link">Logout</a>
+            {% else %}
+              <!-- Guest user menu -->
+              <a href="#" class="navbar-dropdown-link">Login</a>
+              <span class="navbar-dropdown-divider">|</span>
+              <a href="#" class="navbar-dropdown-link">Register</a>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -161,8 +175,8 @@
 
           <!-- Other Menu Items -->
           <div class="mobile-menu-item">
-            <a href="./parts.html" class="mobile-menu-link">
-              <span>Parts</span>
+            <a href="{% url 'parts:part_list' %}" class="mobile-menu-link">
+              <span>Shop Parts</span>
             </a>
           </div>
           <div class="mobile-menu-item">
@@ -1827,7 +1841,7 @@
             </div>
           </div>
 
-          <a href="/parts.html" class="nav-link">PARTS</a>
+          <a href="{% url 'parts:part_list' %}" class="nav-link">SHOP PARTS</a>
           <a href="/services.html" class="nav-link">SERVICES</a>
           <a href="/financing.html" class="nav-link">FINANCING</a>
         </div>

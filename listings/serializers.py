@@ -43,15 +43,17 @@ class VehicleListingListSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     body_type = VehicleCategorySerializer(read_only=True)
     primary_image = serializers.SerializerMethodField()
+    images = ListingImageSerializer(many=True, read_only=True)
+    image_count = serializers.SerializerMethodField()
     location_display = serializers.SerializerMethodField()
     
     class Meta:
         model = VehicleListing
         fields = [
             'id', 'title', 'slug', 'price', 'year', 'make', 'model',
-            'kilometers', 'fuel_type', 'transmission', 'color',
-            'condition', 'status', 'is_featured', 'is_premium',
-            'body_type', 'location_display', 'primary_image', 'user', 'created_at',
+            'kilometers', 'fuel_type', 'transmission', 'exterior_color',
+            'condition', 'status', 'is_featured',
+            'body_type', 'location_display', 'primary_image', 'images', 'image_count', 'user', 'created_at',
             'views_count', 'inquiries_count'
         ]
         read_only_fields = ['id', 'slug', 'views_count', 'inquiries_count', 'created_at']
@@ -65,6 +67,10 @@ class VehicleListingListSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(primary_image.image.url)
             return primary_image.image.url
         return None
+    
+    def get_image_count(self, obj):
+        """Get the total number of images for this listing."""
+        return obj.images.count()
     
     def get_location_display(self, obj):
         """Get formatted location display."""
@@ -92,9 +98,9 @@ class VehicleListingDetailSerializer(serializers.ModelSerializer):
         model = VehicleListing
         fields = [
             'id', 'title', 'slug', 'description', 'price', 'year', 'make', 'model',
-            'kilometers', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seats',
-            'color', 'color_interior', 'condition', 'vin', 'status',
-            'is_featured', 'is_premium', 'body_type', 'published_at', 'expires_at',
+            'kilometers', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seating_capacity',
+            'exterior_color', 'interior_color', 'condition', 'vin', 'status',
+            'is_featured', 'body_type', 'published_at', 'expires_at',
             'location_city', 'location_state', 'location_country',
             'warranty_information', 'additional_features', 'seller_notes',
             'user', 'images', 'videos', 'status_logs', 'is_saved',
@@ -147,8 +153,8 @@ class VehicleListingCreateUpdateSerializer(serializers.ModelSerializer):
         model = VehicleListing
         fields = [
             'title', 'description', 'price', 'year', 'make', 'model',
-            'kilometers', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seats',
-            'color', 'color_interior', 'condition', 'vin', 'body_type',
+            'kilometers', 'fuel_type', 'transmission', 'engine_size', 'doors', 'seating_capacity',
+            'exterior_color', 'interior_color', 'condition', 'vin', 'body_type',
             'location_city', 'location_state', 'location_country',
             'warranty_information', 'additional_features', 'seller_notes',
             'expires_at', 'images', 'videos', 'uploaded_images', 'uploaded_videos',

@@ -31,52 +31,20 @@ const carDetailData = {
   }
 };
 
-// Similar cars data
-const similarCarData = [
-  {
-    id: 21,
-    title: "2022 BMW X5 M50i",
-    model: "Sports Activity Vehicle",
-    price: "$68,900",
-    mileage: "8,200 miles",
-    location: "Los Angeles, CA",
-    image: "//images.pexels.com/photos/1592384/pexels-photo-1592384.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&fit=crop"
-  },
-  {
-    id: 22,
-    title: "2023 Mercedes GLS 450",
-    model: "4MATIC SUV",
-    price: "$82,500",
-    mileage: "5,100 miles",
-    location: "Beverly Hills, CA",
-    image: "//images.pexels.com/photos/3802510/pexels-photo-3802510.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&fit=crop"
-  },
-  {
-    id: 23,
-    title: "2022 Audi Q8 Prestige",
-    model: "55 TFSI Quattro",
-    price: "$74,900",
-    mileage: "9,800 miles",
-    location: "Santa Monica, CA",
-    image: "//images.pexels.com/photos/1719648/pexels-photo-1719648.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&fit=crop"
-  },
-  {
-    id: 24,
-    title: "2023 Lexus GX 460",
-    model: "Premium SUV",
-    price: "$69,500",
-    mileage: "3,200 miles",
-    location: "Pasadena, CA",
-    image: "//images.pexels.com/photos/2365572/pexels-photo-2365572.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&fit=crop"
-  }
-];
+// Similar cars data will be provided by the template
 
 // Image Gallery Manager
 class CarDetailImageGalleryManager {
   constructor() {
     this.currentImageIndex = 0;
-    this.images = carDetailData.images;
+    this.images = this.getImagesFromDOM();
     this.init();
+  }
+
+  getImagesFromDOM() {
+    // Get actual images from the thumbnail gallery
+    const thumbnails = document.querySelectorAll('.car-detail-thumbnail');
+    return Array.from(thumbnails).map(thumbnail => thumbnail.src);
   }
 
   init() {
@@ -375,21 +343,36 @@ class CarDetailSimilarCarsManager {
   renderSimilarCars() {
     const container = document.getElementById('carDetailSimilarCarsGrid');
     
+    // Check if similarCarData is available
+    if (typeof similarCarData === 'undefined' || !similarCarData) {
+      console.warn('Similar car data not available');
+      container.innerHTML = '<p class="text-center text-gray-500">No similar vehicles available</p>';
+      return;
+    }
+    
     container.innerHTML = similarCarData.map(car => this.createCarCard(car)).join('');
     
     // Add event listeners
     container.querySelectorAll('.car-detail-similar-view-btn').forEach((btn, index) => {
       btn.addEventListener('click', () => {
-        // Navigate to car details (in real app, this would change the URL)
-        console.log('View car:', similarCarData[index]);
-        alert('Would navigate to car details for: ' + similarCarData[index].title);
+        // Navigate to car details using the correct URL pattern
+        if (typeof similarCarData !== 'undefined' && similarCarData[index] && similarCarData[index].slug) {
+          window.location.href = `/car/${similarCarData[index].slug}/`;
+        } else {
+          console.log('View car:', typeof similarCarData !== 'undefined' ? similarCarData[index] : 'Data not available');
+          alert('Car details not available');
+        }
       });
     });
 
     container.querySelectorAll('.car-detail-similar-compare-btn').forEach((btn, index) => {
       btn.addEventListener('click', () => {
-        console.log('Compare car:', similarCarData[index]);
-        alert('Added ' + similarCarData[index].title + ' to comparison');
+        if (typeof similarCarData !== 'undefined' && similarCarData[index]) {
+          console.log('Compare car:', similarCarData[index]);
+          alert('Added ' + similarCarData[index].title + ' to comparison');
+        } else {
+          alert('Car comparison not available');
+        }
       });
     });
   }

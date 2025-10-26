@@ -21,7 +21,6 @@ class CarGridManager {
     this.sidebarHeader = document.querySelector('.sidebar-header h2');
     this.sortBtn = document.querySelector('.sort-btn');
     this.searchInput = document.querySelector('.search-input');
-    this.searchBtn = document.querySelector('.search-btn');
     
     this.init();
   }
@@ -42,10 +41,6 @@ class CarGridManager {
     }
 
     // Search functionality
-    if (this.searchBtn) {
-      this.searchBtn.addEventListener('click', () => this.handleSearch());
-    }
-
     if (this.searchInput) {
       this.searchInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -319,13 +314,13 @@ class CarGridManager {
   }
 
   createCarCard(listing) {
-    // Use our media/car images based on listing ID or fallback to our sample images
+    // Use the primary_image from API response or fallback to our sample images
     const carImages = ['/media/car/car1.svg', '/media/car/car2.svg', '/media/car/car3.svg', '/media/car/car4.svg', '/media/car/car5.svg'];
-    const primaryImage = listing.images && listing.images.length > 0 
-      ? listing.images[0].image 
+    const primaryImage = listing.primary_image 
+      ? listing.primary_image 
       : carImages[(listing.id % carImages.length)];
     
-    const imageCount = listing.images ? listing.images.length : 1;
+    const imageCount = listing.image_count || 1;
     const hasVideo = listing.videos && listing.videos.length > 0;
     
     const statusClass = this.getStatusClass(listing);
@@ -353,12 +348,12 @@ class CarGridManager {
           <p class="fuel-economy">${listing.body_type?.name || 'Vehicle'}</p>
           <div class="card-actions">
             <button class="primary-btn" onclick="window.carGridManager.scheduleTestDrive(${listing.id})">🗓 Schedule Test Drive</button>
-            <a href="/listings/${listing.slug}/" class="secondary-btn">Learn More</a>
+            <a href="/car/${listing.slug}/" class="secondary-btn">Learn More</a>
           </div>
           <div class="card-footer">
             <a href="#" onclick="window.carGridManager.compareListing(${listing.id})"><ion-icon name="git-compare-outline"></ion-icon> Compare</a>
             <a href="#" onclick="window.carGridManager.saveListing(${listing.id})"><i class="ri-save-3-line"></i> Save</a>
-            <a href="/listings/${listing.slug}/">👁 View Details</a>
+            <a href="/car/${listing.slug}/">👁 View Details</a>
           </div>
         </div>
       </div>
