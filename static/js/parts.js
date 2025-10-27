@@ -344,6 +344,16 @@ versions: {
 "Suzuki-Swift": ["GL", "GLX", "DLX"]
 }
 };
+// ---------- BEGIN: Persist cart helper ----------
+function saveCartToLocalStorage() {
+    try {
+        localStorage.setItem('cartItems', JSON.stringify(cartItems || []));
+        localStorage.setItem('addedToCart', JSON.stringify(Array.from(addedToCart || new Set())));
+    } catch (e) {
+        console.warn('Unable to save cart to localStorage:', e);
+    }
+}
+// ---------- END: Persist cart helper ----------
 
 // Global variables
 let currentPage = 1;
@@ -376,13 +386,13 @@ initializeSelectionModals();
 // Initialize selection modals
 function initializeSelectionModals() {
 // Create modal HTML for Make
-createSelectionModal('make', 'Select Make', makeData);
+// createSelectionModal('make', 'Select Make', makeData);
 
 // Create modal HTML for Brand
-createSelectionModal('brand', 'Select Brand', brandData);
+// createSelectionModal('brand', 'Select Brand', brandData);
 
 // Create modal HTML for City
-createSelectionModal('city', 'Select City', cityData);
+// createSelectionModal('city', 'Select City', cityData);
 
 // Add event listeners for "more choices..." links
 const moreLinks = document.querySelectorAll('.pw-more-link');
@@ -543,7 +553,12 @@ closeSelectionModal(type);
 // Create brand modal (for when brand filter is added)
 function initializeBrandModal() {
 // Add brand filter section if it doesn't exist
-const makeFilter = document.querySelector('[id="content-make"]').closest('.pw-filter-section');
+const makeFilterElement = document.querySelector('[id="content-make"]');
+if (!makeFilterElement) {
+console.log("Make filter element not found, skipping brand modal initialization");
+return;
+}
+const makeFilter = makeFilterElement.closest('.pw-filter-section');
 const brandFilterHTML = `
     <div class="pw-filter-section">
       <div class="pw-filter-header" onclick="toggleFilter('brand')">
@@ -598,6 +613,12 @@ makeFilter.insertAdjacentHTML('afterend', brandFilterHTML);
 function initializeVehicleSelector() {
 const vehicleBtn = document.querySelector('.pw-vehicle-btn');
 const vehicleSelector = document.querySelector('.pw-vehicle-selector');
+
+// Check if required elements exist
+if (!vehicleBtn || !vehicleSelector) {
+console.log("Vehicle selector elements not found, skipping initialization");
+return;
+}
 
 // Create dropdown HTML
 const dropdownHTML = `
@@ -942,12 +963,15 @@ e.stopPropagation();
 // Initialize event listeners
 function initializeEventListeners() {
 // Sort dropdown
-document.getElementById("sortSelect").addEventListener("change", (e) => {
+const sortSelect = document.getElementById("sortSelect");
+if (sortSelect) {
+sortSelect.addEventListener("change", (e) => {
 const sortValue = e.target.value;
 console.log("Sort by:", sortValue);
 // Add sorting logic here
 renderProducts();
 });
+}
 
 // Search functionality
 const searchInputs = document.querySelectorAll('.pw-search-input');
@@ -964,6 +988,41 @@ searchBtns.forEach(btn => {
 btn.addEventListener('click', (e) => {
 const input = e.target.previousElementSibling;
 handleSearch(input.value);
+});
+});
+
+
+// ---------- BEGIN: Delegated click handlers for add/buy ----------
+document.addEventListener('click', function(e) {
+    // Add to Cart (delegated)
+    const addBtn = e.target.closest('.pw-add-to-cart-button');
+    if (addBtn) {
+        e.preventDefault();
+        const partId = parseInt(addBtn.getAttribute('data-part-id'));
+        // If there's a quantity input on the page, use it; otherwise default to 1
+        const quantityInput = document.getElementById('pw-quantity-input');
+        const qty = quantityInput ? parseInt(quantityInput.value) : 1;
+        addToCart(partId, qty);
+        return;
+    }
+
+    // Buy Now (delegated)
+    const buyBtn = e.target.closest('.pw-buy-now-button');
+    if (buyBtn) {
+        e.preventDefault();
+        const partId = parseInt(buyBtn.getAttribute('data-part-id'));
+        buyNow(partId);
+        return;
+    }
+});
+// ---------- END: Delegated click handlers for add/buy ----------
+
+// Report ad buttons
+const reportBtns = document.querySelectorAll('.pw-report-ad-button');
+reportBtns.forEach(btn => {
+btn.addEventListener('click', (e) => {
+const partId = parseInt(btn.getAttribute('data-part-id'));
+reportAd(partId);
 });
 });
 }
@@ -1044,6 +1103,9 @@ return starsHtml;
 // Render products with cart functionality
 function renderProducts() {
 const productsGrid = document.getElementById("productsGrid");
+if (!productsGrid) {
+    return; // Exit if the element doesn't exist on this page
+}
 let productsHtml = "";
 
 products.forEach((product) => {
@@ -1117,47 +1179,242 @@ initializeBrandModal();
 }
 
 // Product actions
+// CSRF Token utility function
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Show toast notification
+function showToast(message, type = 'success') {
+    // Create toast element if it doesn't exist
+    let toast = document.getElementById('cart-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'cart-toast';
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            z-index: 10000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        `;
+        document.body.appendChild(toast);
+    }
+    
+    // Set toast style based on type
+    toast.style.backgroundColor = type === 'success' ? '#28a745' : '#dc3545';
+    toast.textContent = message;
+    toast.style.opacity = '1';
+    
+    // Hide toast after 3 seconds
+    setTimeout(() => {
+        toast.style.opacity = '0';
+    }, 3000);
+}
+
+// Update cart count in DOM
+function updateCartCount(count) {
+    const cartCountElements = document.querySelectorAll('.cart-count, [data-cart-count]');
+    cartCountElements.forEach(element => {
+        element.textContent = count;
+    });
+}
+
+// ---------- BEGIN: Robust buyNow ----------
 function buyNow(productId) {
-const product = products.find((p) => p.id === productId);
-if (product) {
-console.log(`Buy Now clicked for: ${product.title}`);
-// Add to cart and redirect to checkout
-addToCart(productId);
-viewCart();
-}
-}
+    console.log(`Buy Now clicked for product ID: ${productId}`);
 
-function addToCart(productId) {
-const product = products.find((p) => p.id === productId);
-if (product) {
-console.log(`Added to cart: ${product.title}`);
+    // Get CSRF token
+    const csrfToken = getCookie('csrftoken');
+    if (!csrfToken) {
+        showToast('Security token missing. Please refresh the page.', 'error');
+        return;
+    }
 
-// Add to cart set
-addedToCart.add(productId);
+    // Determine quantity:
+    //  - If there's a page-level quantity input with id pw-quantity-input (detail page), use it.
+    //  - Else fallback to 1.
+    let quantity = 1;
+    const pageQuantityInput = document.getElementById('pw-quantity-input');
+    if (pageQuantityInput) {
+        quantity = parseInt(pageQuantityInput.value) || 1;
+    } else {
+        // also check for an input inside a card that may have a data attribute (if you later add it)
+        const cardQuantityInput = document.querySelector(`input[data-part-id="${productId}"]`);
+        if (cardQuantityInput) {
+            quantity = parseInt(cardQuantityInput.value) || 1;
+        }
+    }
 
-// Add to cart items array
-const existingItem = cartItems.find(item => item.id === productId);
-if (existingItem) {
-existingItem.quantity++;
-} else {
-cartItems.push({
-...product,
-quantity: 1
-});
+    // Prepare request data
+    const requestData = {
+        part_id: productId,
+        qty: quantity,
+        return_url: window.location.href
+    };
+
+    // Loading UI
+    const buyButton = document.querySelector(`[data-part-id="${productId}"].pw-buy-now-button`);
+    const originalText = buyButton ? buyButton.innerHTML : '';
+    if (buyButton) {
+        buyButton.disabled = true;
+        buyButton.innerHTML = 'Processing...';
+    }
+
+    fetch('/parts/buy-now/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || 'Failed to create order');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success && data.checkout_url) {
+            showToast(data.message || 'Redirecting to checkout...', 'success');
+
+            // Optionally add the item to client-side cart as well for consistency
+            cartItems.push({ productId, qty: quantity });
+            addedToCart.add(productId);
+            saveCartToLocalStorage();
+
+            // Redirect to checkout (server returns checkout_url)
+            window.location.href = data.checkout_url;
+        } else {
+            throw new Error(data.error || 'Failed to create order');
+        }
+    })
+    .catch(error => {
+        console.error('Error creating order:', error);
+        showToast(error.message || 'Failed to create order. Please try again.', 'error');
+    })
+    .finally(() => {
+        if (buyButton) {
+            buyButton.disabled = false;
+            buyButton.innerHTML = originalText;
+        }
+    });
 }
+// ---------- END: Robust buyNow ----------
 
-// Store in localStorage
-localStorage.setItem('cartItems', JSON.stringify(cartItems));
-localStorage.setItem('addedToCart', JSON.stringify([...addedToCart]));
 
-// Re-render products to show View Cart button
-renderProducts();
+// ---------- BEGIN: Improved addToCart ----------
+function addToCart(productId, quantity = 1, redirectAfter = false) {
+    console.log(`Adding to cart: Product ID ${productId}, Quantity: ${quantity}`);
+
+    // Get CSRF token
+    const csrfToken = getCookie('csrftoken');
+    if (!csrfToken) {
+        showToast('Security token missing. Please refresh the page.', 'error');
+        return;
+    }
+
+    // Prepare request data
+    const requestData = {
+        qty: quantity
+    };
+
+    // Optional: disable the button that triggered this action if available
+    const triggerBtn = document.querySelector(`[data-part-id="${productId}"].pw-add-to-cart-button`);
+    const originalBtnText = triggerBtn ? triggerBtn.textContent : null;
+    if (triggerBtn) {
+        triggerBtn.disabled = true;
+        triggerBtn.textContent = 'Adding...';
+    }
+
+    fetch(`/parts/cart/add/${productId}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || 'Failed to add item to cart');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            showToast(data.message || 'Added to cart', 'success');
+
+            // Update client-side cart state
+            cartItems.push({ productId, qty: quantity });
+            addedToCart.add(productId);
+
+            // Save to localStorage so reloads persist
+            saveCartToLocalStorage();
+
+            // Update visible cart counters
+            if (typeof data.cart_count !== 'undefined') {
+                updateCartCount(data.cart_count);
+            } else {
+                // fallback increment if backend doesn't return count
+                const currentCountEl = document.querySelector('[data-cart-count]');
+                if (currentCountEl) {
+                    const newCount = (parseInt(currentCountEl.textContent || '0') || 0) + 1;
+                    updateCartCount(newCount);
+                }
+            }
+
+            // Re-render UI where appropriate
+            try { renderProducts(); } catch (e) {}
+
+            // Redirect to cart if needed
+            if (redirectAfter) {
+                viewCart();
+            }
+        } else {
+            showToast(data.error || 'Failed to add item to cart', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error adding to cart:', error);
+        showToast(error.message || 'Failed to add item to cart', 'error');
+    })
+    .finally(() => {
+        if (triggerBtn) {
+            triggerBtn.disabled = false;
+            triggerBtn.textContent = originalBtnText;
+        }
+    });
 }
-}
+// ---------- END: Improved addToCart ----------
+
 
 function viewCart() {
-// Redirect to checkout page
-window.location.href = 'buy-checkout.html';
+    // Redirect to cart page
+    window.location.href = '/parts/cart/';
 }
 
 // Filter functionality
